@@ -1,0 +1,11 @@
+# Runtime dependencies only
+# Install with: pip install -r requirements.txt
+cryptography>=42.0.0
+argon2-cffi>=23.1.0
+PySide6>=6.6.0
+pywin32>=306
+psutil>=5.9.0
+Pillow>=10.0.0
+zxcvbn>=4.4.28
+# opencv-python is optional; remove if not using webcam intruder capture
+# opencv-python>=4.8.0

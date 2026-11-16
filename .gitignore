@@ -1,0 +1,49 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# PyInstaller / Build outputs
+build/
+dist/
+*.spec.bak
+*.bak
+*.exe
+PersonalVault.exe
+Personal Vault.lnk
+
+# Testing & Linting
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Sensitive user data / keys
+vault_recovery_key.txt
+*.key
+*.pem
+*.enc
+*.part
+
+# Temporary / Scratch artifacts
+scratch/
+mylocker/tests/scratch_dash_test/
+*.log
+
+# OS & Editor generated files
+desktop.ini
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
