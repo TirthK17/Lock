@@ -88,20 +88,26 @@ class TestSingleInstanceNamedPipe:
 
         mgr = SingleInstanceManager(pipe_name, on_activate=_on_activate)
         mgr.start()
-        time.sleep(0.1)
 
         try:
             import win32file
-            # Secondary client connects
-            h_pipe = win32file.CreateFile(
-                pipe_name,
-                win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-                0,
-                None,
-                win32file.OPEN_EXISTING,
-                0,
-                None,
-            )
+            # Secondary client connects with brief retry for thread startup
+            h_pipe = None
+            for _ in range(30):
+                try:
+                    h_pipe = win32file.CreateFile(
+                        pipe_name,
+                        win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+                        0,
+                        None,
+                        win32file.OPEN_EXISTING,
+                        0,
+                        None,
+                    )
+                    break
+                except Exception:
+                    time.sleep(0.1)
+            assert h_pipe is not None, "Failed to connect to named pipe server within 3s"
             win32file.WriteFile(h_pipe, b"ACTIVATE\n")
             _hr, reply = win32file.ReadFile(h_pipe, 64)
             win32file.CloseHandle(h_pipe)
