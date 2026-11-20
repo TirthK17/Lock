@@ -20,6 +20,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -276,21 +277,22 @@ class LockoutManager:
 
     def _write_intruder_log(self, log: list) -> None:
         serialized = json.dumps(log, indent=2).encode("utf-8")
+        file_payload: Any
         if HAS_DPAPI:
             try:
                 protected = win32crypt.CryptProtectData(serialized, "PersonalVaultIntruderLog", None, None, None, 0)
-                file_dict = {
+                file_payload = {
                     "_dpapi": base64.b64encode(protected).decode("ascii")
                 }
             except Exception:
-                file_dict = log
+                file_payload = log
         else:
-            file_dict = log
+            file_payload = log
 
         tmp = self._intruder_path.with_suffix(".tmp")
         try:
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(file_dict, fh, indent=2)
+                json.dump(file_payload, fh, indent=2)
                 fh.flush()
                 os.fsync(fh.fileno())
             tmp.replace(self._intruder_path)

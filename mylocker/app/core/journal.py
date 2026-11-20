@@ -245,6 +245,7 @@ class Journal:
         """Encrypt journal payload with AES-256-GCM."""
         from mylocker.app.core.crypto import encrypt_aes_gcm
         from mylocker.app.core.kdf import derive_journal_key
+        assert self._master_key is not None, "Master key must be loaded to encrypt journal"
         jkey = derive_journal_key(self._master_key)
         try:
             nonce, ct = encrypt_aes_gcm(jkey, raw)
@@ -267,6 +268,7 @@ class Journal:
             nonce = fh.read(12)
             ct_len = struct.unpack("<I", fh.read(4))[0]
             ct = fh.read(ct_len)
+        assert self._master_key is not None, "Master key must be loaded to decrypt journal"
         jkey = derive_journal_key(self._master_key)
         try:
             raw = decrypt_aes_gcm(jkey, nonce, ct)

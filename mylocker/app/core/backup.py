@@ -21,7 +21,7 @@ import shutil
 import tarfile
 import time
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from mylocker.app.core.chunked_io import (
     decrypt_file,
@@ -79,11 +79,12 @@ def create_vault_backup(
         ]
         total_files = len(files_to_pack)
 
-        manifest = {
+        files_map: dict[str, str] = {}
+        manifest: dict[str, Any] = {
             "created_at": time.time(),
             "version": "1.0",
             "file_count": total_files,
-            "files": {},
+            "files": files_map,
         }
 
         # Calculate checksums
@@ -96,7 +97,7 @@ def create_vault_backup(
             with open(file_path, "rb") as fh:
                 while chunk := fh.read(1024 * 1024):
                     h.update(chunk)
-            manifest["files"][rel] = h.hexdigest()
+            files_map[rel] = h.hexdigest()
 
         # Write manifest temporarily into vault_dir
         manifest_path = vault_dir / MANIFEST_FILENAME
@@ -111,8 +112,8 @@ def create_vault_backup(
 
         with tarfile.open(backup_tar_path, "w:gz") as tar:
             for file_path in files_to_pack:
-                rel = file_path.relative_to(vault_dir)
-                tar.add(file_path, arcname=str(rel).replace("\\", "/"))
+                arcname = str(file_path.relative_to(vault_dir)).replace("\\", "/")
+                tar.add(file_path, arcname=arcname)
 
         # Cleanup temp manifest
         manifest_path.unlink(missing_ok=True)

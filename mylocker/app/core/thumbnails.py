@@ -35,8 +35,8 @@ def _pil_to_jpeg_b64(img: Image.Image) -> Optional[str]:
         except Exception:
             pass
 
-        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
-        img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), resampling)
+        resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", getattr(Image, "BICUBIC", 3))
+        img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), resampling)  # type: ignore[arg-type]
 
         if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
             rgba = img.convert("RGBA")
@@ -83,9 +83,9 @@ def qimage_to_thumbnail_b64(qimg) -> Optional[str]:
         buf = QBuffer()
         buf.open(QIODevice.OpenModeFlag.WriteOnly)
         try:
-            if not out_img.save(buf, "JPG", THUMB_JPEG_QUALITY):
+            if not out_img.save(buf, "JPG", THUMB_JPEG_QUALITY):  # type: ignore[call-overload]
                 return None
-            raw = bytes(buf.data())
+            raw = bytes(buf.buffer().data())
         finally:
             buf.close()
 

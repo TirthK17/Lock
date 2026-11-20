@@ -23,6 +23,18 @@
 
 ---
 
+## Visual Interface
+
+### Personal Vault Dashboard
+![Personal Vault Dashboard](docs/images/dashboard_preview.png)
+
+### Modern Minimalist Login
+<p align="center">
+  <img src="docs/images/login_preview.png" alt="Personal Vault Login" width="650"/>
+</p>
+
+---
+
 ## Architecture & Security Model
 
 ```

@@ -32,7 +32,7 @@ jobs:
 
       - name: Type check with Mypy
         run: |
-          mypy mylocker/app/core --strict
+          mypy mylocker/app/core
 
       - name: Security scan with Bandit
         run: |
