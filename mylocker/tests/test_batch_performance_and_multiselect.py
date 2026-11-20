@@ -415,8 +415,8 @@ class TestImageAndVideoThumbnails:
         import base64
         import io
 
-        import cv2
-        import numpy as np
+        cv2 = pytest.importorskip("cv2")
+        np = pytest.importorskip("numpy")
         from PIL import Image, ImageStat
 
         vault_dir, vault, session, ks, lockout, settings_store = vault_env
