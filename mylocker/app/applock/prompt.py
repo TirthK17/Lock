@@ -11,7 +11,6 @@ Security details:
 
 from __future__ import annotations
 
-import ctypes
 import logging
 from typing import Callable, Optional
 
@@ -72,8 +71,8 @@ class AppLockPrompt(QDialog):
 
     def _apply_screenshot_protection(self) -> None:
         try:
-            hwnd = int(self.winId())
-            ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
+            from ..system.screenshot import apply_screenshot_protection
+            apply_screenshot_protection(self, True)
         except Exception:
             pass
 

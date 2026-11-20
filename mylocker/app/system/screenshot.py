@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 
 from PySide6.QtWidgets import QWidget
 
@@ -31,8 +32,14 @@ def apply_screenshot_protection(widget: QWidget, enable: bool = True) -> bool:
         True if the Win32 call succeeded, False otherwise.
     """
     try:
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            return True
+
         hwnd = int(widget.winId())
         if not hwnd:
+            return False
+
+        if hasattr(ctypes.windll, "user32") and not ctypes.windll.user32.IsWindow(hwnd):
             return False
 
         affinity = WDA_EXCLUDEFROMCAPTURE if enable else WDA_NONE

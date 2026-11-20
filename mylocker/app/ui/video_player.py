@@ -1724,7 +1724,6 @@ class VideoPlayer(QDialog):
 
     def __init__(self, file_id: str, vault, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowFlags(
             Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint

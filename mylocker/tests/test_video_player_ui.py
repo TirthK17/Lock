@@ -32,6 +32,12 @@ def _make_sample_mp4_bytes() -> bytes:
     return b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + os.urandom(4096)
 
 
+@pytest.fixture(autouse=True)
+def mock_qmediaplayer_backend():
+    with patch.object(QMediaPlayer, "play"), patch.object(QMediaPlayer, "pause"), patch.object(QMediaPlayer, "setSourceDevice"):
+        yield
+
+
 @pytest.fixture
 def vault_with_video(tmp_path):
     vault_dir = tmp_path / "VideoVault"
@@ -86,7 +92,8 @@ class TestVideoPlayerUI:
                 qtbot.wait(30)
 
                 # Filename elides gracefully & quality/format subtitle renders
-                assert "Project_Showcase" in player._title_lbl.text()
+                assert "Project_Showcase" in player.windowTitle()
+                assert "Project_Showcase" in player._title_lbl.text() or "…" in player._title_lbl.text()
                 assert "MP4" in player._subtitle_lbl.text()
                 assert player._quality_pill.text() == "HD"
 

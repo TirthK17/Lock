@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 from ctypes import wintypes
 from typing import Optional
 
@@ -43,6 +44,8 @@ class WindowsSecurityEventFilter(QAbstractNativeEventFilter):
     def register_window(self, widget: QWidget) -> None:
         """Register a window handle with wtsapi32 for session notifications."""
         try:
+            if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+                return
             hwnd = int(widget.winId())
             if hwnd and hwnd not in self._registered_hwnds:
                 res = ctypes.windll.wtsapi32.WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION)
