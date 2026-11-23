@@ -423,10 +423,18 @@ class Vault:
         blob_name = entry.blob_name or _derive_blob_name(mk, file_id_bytes)
         blob_path = self.blobs_dir / blob_name
 
+        orig_size = entry.size_bytes
+        orig_mod = entry.modified_time
+        orig_hash = entry.source_hash
+        orig_mime = entry.mime_type
+        orig_thumb = entry.thumbnail_b64
+
         new_size = new_source_path.stat().st_size
         new_hash = hash_file_sha256(new_source_path)
 
         new_part_path = self.blobs_dir / (blob_name + "." + secrets.token_hex(4) + ".part")
+        old_blob_backup = self.blobs_dir / (blob_name + "." + secrets.token_hex(4) + ".old")
+        blob_swapped = False
 
         try:
             # 1. Encrypt new content to temp part
@@ -441,8 +449,11 @@ class Vault:
             if dec_hash != new_hash:
                 raise VaultError("Content hash mismatch for updated file.")
 
-            # 3. Commit new blob atomically
+            # 3. Safe atomic swap: move existing blob to backup, then move new part to blob_path
+            if blob_path.exists():
+                blob_path.replace(old_blob_backup)
             new_part_path.replace(blob_path)
+            blob_swapped = True
 
             # 4. Update FileEntry in index
             entry.size_bytes = new_size
@@ -457,7 +468,13 @@ class Vault:
 
             self._save_index(mk)
 
-            # 5. Securely delete the temporary updated file
+            # 5. Success! Remove the old blob backup
+            try:
+                secure_delete_file(old_blob_backup)
+            except Exception:
+                old_blob_backup.unlink(missing_ok=True)
+
+            # 6. Securely delete the temporary updated file
             try:
                 secure_delete_file(new_source_path)
             except Exception:
@@ -466,6 +483,20 @@ class Vault:
             return entry
 
         except Exception as exc:
+            # Rollback: restore entry metadata
+            entry.size_bytes = orig_size
+            entry.modified_time = orig_mod
+            entry.source_hash = orig_hash
+            entry.mime_type = orig_mime
+            entry.thumbnail_b64 = orig_thumb
+
+            # Rollback: restore old blob if swapped
+            if blob_swapped and old_blob_backup.exists():
+                blob_path.unlink(missing_ok=True)
+                old_blob_backup.replace(blob_path)
+            elif old_blob_backup.exists():
+                old_blob_backup.replace(blob_path)
+
             new_part_path.unlink(missing_ok=True)
             if isinstance(exc, VaultError):
                 raise
