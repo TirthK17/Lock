@@ -372,6 +372,7 @@ class ForgotPasswordDialog(QDialog):
         self._worker: Optional[RecoveryWorker] = None
         self._master_key: Optional[bytearray] = None
         self._password_reset: bool = False
+        self._photo_threads: list[QThread] = []
         self.setWindowTitle("Forgot Password — Reset via Recovery Key")
         self.setMinimumWidth(520)
         self.setStyleSheet(
@@ -655,16 +656,25 @@ class ForgotPasswordDialog(QDialog):
         if not self._lockout:
             return
         try:
-            import time as _t
-
-            from ..system.webcam import capture_intruder_photo
-            rel = f"intruder_photos/capture_{int(_t.time() * 1000)}.enc"
-            out_path = self._lockout.vault_dir / rel
-            if capture_intruder_photo(out_path, enabled=True):
-                self._lockout.attach_photo_to_latest(rel)
-                logger.info("Intruder photo saved and attached: %s", rel)
+            from ..system.webcam import IntruderPhotoCaptureThread
+            thread = IntruderPhotoCaptureThread(self._lockout.vault_dir, self._lockout, parent=self)
+            self._photo_threads.append(thread)
+            thread.finished.connect(
+                lambda: self._photo_threads.remove(thread) if thread in self._photo_threads else None
+            )
+            thread.start()
         except Exception as exc:
-            logger.warning("Intruder webcam capture failed: %s", exc)
+            logger.warning("Failed to start background intruder capture thread: %s", exc)
+
+    def closeEvent(self, event) -> None:
+        for th in list(self._photo_threads):
+            try:
+                if th.isRunning():
+                    th.wait(1000)
+            except Exception:
+                pass
+        self._photo_threads.clear()
+        super().closeEvent(event)
 
     def _on_worker_error(self, msg: str) -> None:
         if self._worker:
@@ -706,6 +716,7 @@ class LoginScreen(QWidget):
         self._success_timer.timeout.connect(self._emit_pending_success)
         self._pending_success: Optional[tuple[object, bool]] = None
         self._worker: Optional[LoginWorker] = None
+        self._photo_threads: list[QThread] = []
         self.last_unlock_seconds: float = 0.0
 
         self._setup_ui()
@@ -1059,6 +1070,14 @@ class LoginScreen(QWidget):
                     worker.wait(1500)
             except Exception:
                 pass
+        for th in list(self._photo_threads):
+            try:
+                import shiboken6
+                if shiboken6.isValid(th) and th.isRunning():
+                    th.wait(1000)
+            except Exception:
+                pass
+        self._photo_threads.clear()
 
     # ── Keystore, Security Status & Lockout Checks ────────────────────────────
 
@@ -1245,16 +1264,15 @@ class LoginScreen(QWidget):
         if not self._lockout:
             return
         try:
-            import time as _t
-
-            from ..system.webcam import capture_intruder_photo
-            rel = f"intruder_photos/capture_{int(_t.time() * 1000)}.enc"
-            out_path = self._lockout.vault_dir / rel
-            if capture_intruder_photo(out_path, enabled=True):
-                self._lockout.attach_photo_to_latest(rel)
-                logger.info("Intruder photo saved and attached: %s", rel)
+            from ..system.webcam import IntruderPhotoCaptureThread
+            thread = IntruderPhotoCaptureThread(self._lockout.vault_dir, self._lockout, parent=self)
+            self._photo_threads.append(thread)
+            thread.finished.connect(
+                lambda: self._photo_threads.remove(thread) if thread in self._photo_threads else None
+            )
+            thread.start()
         except Exception as exc:
-            logger.warning("Intruder webcam capture failed: %s", exc)
+            logger.warning("Failed to start background intruder capture thread: %s", exc)
 
     def _on_worker_error(self, err_msg: str) -> None:
         self._attempt_in_progress = False

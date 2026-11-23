@@ -8,8 +8,11 @@ is never written to disk.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
+
+from PySide6.QtCore import QObject, QThread, Signal
 
 logger = logging.getLogger(__name__)
 
@@ -221,4 +224,42 @@ def capture_intruder_photo(output_path: Path, enabled: bool = True) -> bool:
         return False
 
 
-__all__ = ["capture_intruder_photo", "decrypt_intruder_photo", "WEBCAM_ENABLED_BY_DEFAULT"]
+class IntruderPhotoCaptureThread(QThread):
+    """Captures and encrypts an intruder photo on a background QThread to avoid freezing the GUI."""
+
+    photo_captured = Signal(str)
+
+    def __init__(
+        self,
+        vault_dir: Path,
+        lockout: Optional[object] = None,
+        enabled: bool = True,
+        parent: Optional[QObject] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._vault_dir = Path(vault_dir)
+        self._lockout = lockout
+        self._enabled = enabled
+
+    def run(self) -> None:
+        try:
+            rel = f"intruder_photos/capture_{int(time.time() * 1000)}.enc"
+            out_path = self._vault_dir / rel
+            if capture_intruder_photo(out_path, enabled=self._enabled):
+                if self._lockout is not None and hasattr(self._lockout, "attach_photo_to_latest"):
+                    self._lockout.attach_photo_to_latest(rel)
+                logger.info("Intruder photo saved and attached in background thread: %s", rel)
+                self.photo_captured.emit(rel)
+            else:
+                self.photo_captured.emit("")
+        except Exception as exc:
+            logger.warning("Intruder webcam capture thread failed: %s", exc)
+            self.photo_captured.emit("")
+
+
+__all__ = [
+    "IntruderPhotoCaptureThread",
+    "WEBCAM_ENABLED_BY_DEFAULT",
+    "capture_intruder_photo",
+    "decrypt_intruder_photo",
+]
