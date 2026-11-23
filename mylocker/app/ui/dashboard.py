@@ -117,7 +117,7 @@ _FILECARD_STYLE = f"""
         background-color: rgba(59, 130, 246, 0.18);
     }}
     #FileThumb {{
-        background: #0B1120;
+        background: {DashColors.BG_POPUP};
         border-radius: 10px;
         color: {DashColors.TEXT_MUTED};
     }}
@@ -260,7 +260,7 @@ class FileCard(AnimatedCard):
             "border: 1.5px solid rgba(255, 255, 255, 0.88);"
             "border-radius: 14px;"
         )
-        self._video_play_badge.setPixmap(icons.get_pixmap("play", "#FFFFFF", size=13))
+        self._video_play_badge.setPixmap(icons.get_pixmap("play", DashColors.WHITE, size=13))
         self._video_play_badge.hide()
 
         # Video duration badge (bottom-right of thumbnail)
@@ -271,7 +271,7 @@ class FileCard(AnimatedCard):
         self._video_duration_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._video_duration_badge.setStyleSheet(
             "background: rgba(0, 0, 0, 0.78);"
-            "color: #FFFFFF;"
+            f"color: {DashColors.WHITE};"
             "font-size: 8px;"
             "font-weight: 600;"
             "border-radius: 3px;"
@@ -318,7 +318,7 @@ class FileCard(AnimatedCard):
         self._more_btn.setObjectName("MoreBtn")
         self._more_btn.setFixedSize(20, 20)
         self._more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._more_btn.setIcon(icons.get_icon("more_vertical", color="#6E7D96"))
+        self._more_btn.setIcon(icons.get_icon("more_vertical", color=DashColors.TEXT_MUTED))
         self._more_btn.clicked.connect(lambda: self._show_context(self._more_btn.mapTo(self, QPoint(0, 20))))
         bottom_lay.addWidget(self._more_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -450,7 +450,7 @@ class FileCard(AnimatedCard):
             self.setProperty("selected", sel_val)
             self._select_btn.setProperty("selected", sel_val)
             if self._selected:
-                self._select_btn.setIcon(icons.get_icon("check", "#FFFFFF", "#FFFFFF", size=14))
+                self._select_btn.setIcon(icons.get_icon("check", DashColors.WHITE, DashColors.WHITE, size=14))
             else:
                 self._select_btn.setIcon(QIcon())
             self.style().unpolish(self)
@@ -1362,7 +1362,7 @@ class Dashboard(QMainWindow):
         self._btn_grid_mode = QPushButton()
         self._btn_grid_mode.setFixedSize(36, 36)
         self._btn_grid_mode.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_grid_mode.setIcon(icons.get_icon("grid", color="#FFFFFF"))
+        self._btn_grid_mode.setIcon(icons.get_icon("grid", color=DashColors.WHITE))
         self._btn_grid_mode.setStyleSheet("""
             QPushButton {
                 background: rgba(255, 255, 255, 0.08);
@@ -1432,8 +1432,8 @@ class Dashboard(QMainWindow):
                 width: 20px;
             }}
             QComboBox QAbstractItemView {{
-                background: #0E1626;
-                color: #F4F7FF;
+                background: {DashColors.BG_INPUT};
+                color: {DashColors.TEXT_PRIMARY};
                 border: 1px solid rgba(125, 160, 220, 0.25);
                 selection-background-color: rgba(91, 140, 255, 0.35);
                 border-radius: 8px;
@@ -1497,7 +1497,7 @@ class Dashboard(QMainWindow):
         self._optimize_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {Colors.ACCENT};
-                color: #FFFFFF;
+                color: {DashColors.WHITE};
                 border: 1px solid rgba(255, 255, 255, 0.22);
                 border-radius: 8px;
                 padding: 0 14px;
@@ -1594,7 +1594,7 @@ class Dashboard(QMainWindow):
         sel_lay.addWidget(self._sel_clear_btn)
 
         self._sel_delete_btn = QPushButton(" Delete Selected")
-        self._sel_delete_btn.setIcon(icons.get_icon("trash", color=Colors.DANGER, active_color="#FFFFFF"))
+        self._sel_delete_btn.setIcon(icons.get_icon("trash", color=Colors.DANGER, active_color=DashColors.WHITE))
         self._sel_delete_btn.setFixedHeight(32)
         self._sel_delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._sel_delete_btn.setStyleSheet(f"""
@@ -1689,21 +1689,21 @@ class Dashboard(QMainWindow):
         self._fab_add = QPushButton("+ Add Files  ∨")
         self._fab_add.setFixedSize(142, 42)
         self._fab_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._fab_add.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4C65E8, stop:1 #637EFF);
-                color: #FFFFFF;
+        self._fab_add.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {DashColors.ACCENT_GRAD_START}, stop:1 {DashColors.ACCENT_GRAD_END});
+                color: {DashColors.WHITE};
                 border: 1px solid rgba(255, 255, 255, 0.28);
                 border-radius: 21px;
                 font-family: 'Segoe UI Variable', 'Segoe UI';
                 font-size: 13px;
                 font-weight: 600;
                 padding: 0 16px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5C75F8, stop:1 #738EFF);
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {DashColors.ACCENT_GRAD_HOVER_START}, stop:1 {DashColors.ACCENT_GRAD_HOVER_END});
                 border-color: rgba(255, 255, 255, 0.45);
-            }
+            }}
         """)
         self._fab_add.clicked.connect(self._show_fab_menu)
         footer_row.addWidget(self._fab_add, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -1904,23 +1904,23 @@ class Dashboard(QMainWindow):
 
     def _show_fab_menu(self) -> None:
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #0E1626;
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: {DashColors.BG_INPUT};
                 border: 1px solid rgba(125, 160, 220, 0.25);
                 border-radius: 10px;
                 padding: 6px;
-                color: #F4F7FF;
+                color: {DashColors.TEXT_PRIMARY};
                 font-family: 'Segoe UI Variable', 'Segoe UI';
                 font-size: 12px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 8px 22px;
                 border-radius: 6px;
-            }
-            QMenu::item:selected {
+            }}
+            QMenu::item:selected {{
                 background: rgba(91, 140, 255, 0.30);
-            }
+            }}
         """)
         act_files = menu.addAction("Add Files…")
         act_folder = menu.addAction("Add Folder…")

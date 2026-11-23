@@ -44,6 +44,8 @@ class DashColors:
     BG_DARKEST = "#060B16"
     BG_SIDEBAR = "#08101F"
     BG_CONTENT = "#091122"
+    BG_POPUP = "#0B1120"
+    BG_INPUT = "#0E1626"
     BG_CARD = "rgba(16, 27, 48, 0.78)"
     BG_CARD_HOVER = "rgba(24, 38, 68, 0.90)"
     BORDER_SUBTLE = "rgba(125, 160, 220, 0.18)"
@@ -59,6 +61,12 @@ class DashColors:
     ACCENT_GREEN = "#39D6A2"
     ACCENT_RED = "#FF6F86"
 
+    ACCENT_GRAD_START = "#4C65E8"
+    ACCENT_GRAD_END = "#637EFF"
+    ACCENT_GRAD_HOVER_START = "#5C75F8"
+    ACCENT_GRAD_HOVER_END = "#738EFF"
+
+    WHITE = "#FFFFFF"
     TEXT_PRIMARY = "#F4F7FF"
     TEXT_SECONDARY = "#AAB7CC"
     TEXT_MUTED = "#6E7D96"
