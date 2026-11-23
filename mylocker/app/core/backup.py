@@ -19,11 +19,13 @@ import logging
 import secrets
 import shutil
 import tarfile
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
 from mylocker.app.core.chunked_io import (
+    OperationCancelledError,
     decrypt_file,
     encrypt_file,
     generate_file_id,
@@ -68,10 +70,12 @@ def create_vault_backup(
     vault_dir: Path,
     backup_tar_path: Path,
     progress: Optional[Callable[[int, int, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Tuple[bool, str]:
     """Create a standalone tar.gz backup of the entire vault directory.
     All data remains encrypted with existing vault keys.
     """
+    manifest_path = vault_dir / MANIFEST_FILENAME
     try:
         files_to_pack = [
             p for p in vault_dir.rglob("*")
@@ -89,6 +93,8 @@ def create_vault_backup(
 
         # Calculate checksums
         for i, file_path in enumerate(files_to_pack):
+            if cancel_event and cancel_event.is_set():
+                raise OperationCancelledError("Operation cancelled.")
             rel = str(file_path.relative_to(vault_dir)).replace("\\", "/")
             if progress:
                 progress(i, total_files, f"Hashing {rel}…")
@@ -96,11 +102,12 @@ def create_vault_backup(
             h = hashlib.sha256()
             with open(file_path, "rb") as fh:
                 while chunk := fh.read(1024 * 1024):
+                    if cancel_event and cancel_event.is_set():
+                        raise OperationCancelledError("Operation cancelled.")
                     h.update(chunk)
             files_map[rel] = h.hexdigest()
 
         # Write manifest temporarily into vault_dir
-        manifest_path = vault_dir / MANIFEST_FILENAME
         with open(manifest_path, "w", encoding="utf-8") as fh:
             json.dump(manifest, fh, indent=2)
 
@@ -112,15 +119,25 @@ def create_vault_backup(
 
         with tarfile.open(backup_tar_path, "w:gz") as tar:
             for file_path in files_to_pack:
+                if cancel_event and cancel_event.is_set():
+                    raise OperationCancelledError("Operation cancelled.")
                 arcname = str(file_path.relative_to(vault_dir)).replace("\\", "/")
                 tar.add(file_path, arcname=arcname)
 
         # Cleanup temp manifest
         manifest_path.unlink(missing_ok=True)
         return True, "Backup created successfully."
+    except OperationCancelledError:
+        manifest_path.unlink(missing_ok=True)
+        backup_tar_path.unlink(missing_ok=True)
+        raise
     except Exception as exc:
+        manifest_path.unlink(missing_ok=True)
+        backup_tar_path.unlink(missing_ok=True)
         logger.error("Failed to create backup: %s", exc)
         return False, str(exc)
+    finally:
+        manifest_path.unlink(missing_ok=True)
 
 
 def restore_vault_backup(
@@ -129,6 +146,7 @@ def restore_vault_backup(
     password: Optional[str] = None,
     keyfile_path: Optional[str] = None,
     progress: Optional[Callable[[int, int, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Tuple[bool, str]:
     """Restore a vault from a tar.gz archive.
 
@@ -147,9 +165,14 @@ def restore_vault_backup(
         if progress:
             progress(0, 100, "Inspecting and extracting backup…")
 
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
+
         with tarfile.open(backup_tar_path, "r:gz") as tar:
             # 1. Manual member validation
             for member in tar.getmembers():
+                if cancel_event and cancel_event.is_set():
+                    raise OperationCancelledError("Operation cancelled.")
                 if not _is_safe_tar_member(member, staging_dir):
                     raise ValueError(f"Dangerous or invalid archive member detected: {member.name}")
 
@@ -160,6 +183,9 @@ def restore_vault_backup(
                 # Manual member validation performed above; extract validated members
                 safe_members = [m for m in tar.getmembers() if _is_safe_tar_member(m, staging_dir)]
                 tar.extractall(path=staging_dir, members=safe_members)  # nosec B202
+
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
 
         # 3. Verify manifest
         manifest_path = staging_dir / MANIFEST_FILENAME
@@ -173,6 +199,8 @@ def restore_vault_backup(
         total_files = len(expected_files)
 
         for i, (rel_path, expected_hash) in enumerate(expected_files.items()):
+            if cancel_event and cancel_event.is_set():
+                raise OperationCancelledError("Operation cancelled.")
             file_path = staging_dir / rel_path
             if not file_path.exists():
                 return False, f"Missing file in archive: {rel_path}"
@@ -183,11 +211,16 @@ def restore_vault_backup(
             h = hashlib.sha256()
             with open(file_path, "rb") as fh:
                 while chunk := fh.read(1024 * 1024):
+                    if cancel_event and cancel_event.is_set():
+                        raise OperationCancelledError("Operation cancelled.")
                     h.update(chunk)
             if h.hexdigest() != expected_hash:
                 return False, f"Integrity hash mismatch for file: {rel_path}"
 
         manifest_path.unlink(missing_ok=True)
+
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
 
         # 4. If password supplied, verify config & index decryptability
         if password:
@@ -200,6 +233,9 @@ def restore_vault_backup(
                 test_idx.load(mk)
             finally:
                 zero_bytes(mk)
+
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
 
         # 5. Snapshot current vault to vault.old
         vault_old = restore_target_dir.parent / f"{restore_target_dir.name}.old"
@@ -219,6 +255,8 @@ def restore_vault_backup(
             raise
 
         return True, "Vault restored and verified successfully."
+    except OperationCancelledError:
+        raise
     except Exception as exc:
         logger.error("Failed to restore backup: %s", exc)
         return False, str(exc)
@@ -234,17 +272,22 @@ def rotate_vault_keys(
     keyfile_path: Optional[str] = None,
     progress: Optional[Callable[[int, int, str], None]] = None,
     recovery_key_out: Optional[list[str]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Tuple[bool, str]:
     """Generate a new Master Key and re-encrypt all blobs in vault.new, then swap."""
     vault_dir = Path(vault_dir).resolve()
     vault_new = vault_dir.parent / f"{vault_dir.name}.new"
     vault_old = vault_dir.parent / f"{vault_dir.name}.old"
+    new_mk: Optional[bytearray] = None
 
     try:
         shutil.rmtree(vault_new, ignore_errors=True)
         vault_new.mkdir(parents=True, exist_ok=True)
         new_blobs_dir = vault_new / "blobs"
         new_blobs_dir.mkdir(parents=True, exist_ok=True)
+
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
 
         # 0. Load old keystore config to preserve KDF tuning & decoy slot
         old_ks = Keystore(vault_dir)
@@ -294,6 +337,8 @@ def rotate_vault_keys(
 
         # 4. Re-encrypt each file into vault_new/blobs/
         for i, entry in enumerate(all_entries):
+            if cancel_event and cancel_event.is_set():
+                raise OperationCancelledError("Operation cancelled.")
             if progress:
                 progress(i, total, f"Re-encrypting item {i + 1}/{total}…")
 
@@ -304,7 +349,13 @@ def rotate_vault_keys(
 
             # Decrypt with old MK to temp file, then wipe temp securely after re-encryption
             temp_dec = new_blobs_dir / f"rotate_{secrets.token_hex(4)}.tmpdec"
-            decrypt_file(old_blob_path, temp_dec, old_master_key, expected_file_id=old_file_id_bytes)
+            decrypt_file(
+                old_blob_path,
+                temp_dec,
+                old_master_key,
+                expected_file_id=old_file_id_bytes,
+                cancel_event=cancel_event,
+            )
 
             try:
                 new_file_id_bytes = generate_file_id()
@@ -312,7 +363,13 @@ def rotate_vault_keys(
                 new_blob_name = derive_blob_name_key(new_mk, new_file_id_bytes).hex()
                 new_blob_path = new_blobs_dir / new_blob_name
 
-                encrypt_file(temp_dec, new_blob_path, new_mk, file_id=new_file_id_bytes)
+                encrypt_file(
+                    temp_dec,
+                    new_blob_path,
+                    new_mk,
+                    file_id=new_file_id_bytes,
+                    cancel_event=cancel_event,
+                )
             finally:
                 try:
                     secure_delete_file(temp_dec)
@@ -338,15 +395,23 @@ def rotate_vault_keys(
             )
             new_index.add(new_entry)
 
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
+
         # 5. Save and verify new index in vault_new
         new_idx_mgr.save(new_mk)
 
         # 6. Verify all files in vault_new
         for entry in new_index.all_files():
+            if cancel_event and cancel_event.is_set():
+                raise OperationCancelledError("Operation cancelled.")
             blob_path = new_blobs_dir / entry.blob_name
-            ok, msg = verify_file_integrity(blob_path, new_mk)
+            ok, msg = verify_file_integrity(blob_path, new_mk, cancel_event=cancel_event)
             if not ok:
                 raise RuntimeError(f"Integrity check failed in new vault: {msg}")
+
+        if cancel_event and cancel_event.is_set():
+            raise OperationCancelledError("Operation cancelled.")
 
         # 7. Preserve auxiliary vault files/subdirs & re-sign HMACs with new salt
         for aux_name in ("applock.config", "intruder.dat"):
@@ -382,7 +447,14 @@ def rotate_vault_keys(
             f"New Emergency Recovery Key:\n{new_recovery_b32}"
         )
 
+    except OperationCancelledError:
+        if new_mk is not None:
+            zero_bytes(new_mk)
+        shutil.rmtree(vault_new, ignore_errors=True)
+        raise
     except Exception as exc:
+        if new_mk is not None:
+            zero_bytes(new_mk)
         logger.error("Key rotation failed: %s", type(exc).__name__)
         shutil.rmtree(vault_new, ignore_errors=True)
         return False, "Key rotation failed. Your original vault remains untouched."

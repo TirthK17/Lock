@@ -370,6 +370,8 @@ def verify_file_integrity(
         for _ in decrypt_file_streaming(source_path, master_key, cancel_event=cancel_event):
             pass
         return True, "OK"
+    except OperationCancelledError:
+        raise
     except ChunkError as exc:
         return False, str(exc)
     except Exception as exc:

@@ -88,8 +88,14 @@ class VaultWorker(QObject):
             if task is None or not self._running:
                 break
 
-            self._cancel_event.clear()
+            if self._cancel_event.is_set():
+                self._cancel_event.clear()
+                self.task_finished.emit(task.task_id, False, "Operation was cancelled.")
+                self._queue.task_done()
+                continue
+
             self._execute_task(task)
+            self._cancel_event.clear()
             self._queue.task_done()
 
     def _execute_task(self, task: VaultTask) -> None:
@@ -215,6 +221,7 @@ class VaultWorker(QObject):
                         dest_dir=Path(dest_dir),
                         remove_from_vault=remove,
                         progress=_progress_cb,
+                        cancel_event=self._cancel_event,
                     )
                     self.file_completed.emit(file_id, str(restored_path))
                     self.task_finished.emit(task.task_id, True, "File restored successfully.")
@@ -236,14 +243,22 @@ class VaultWorker(QObject):
                     self.task_finished.emit(task.task_id, True, f"{removed} file(s) removed from vault.")
 
                 elif action == "verify_all":
-                    results = self._vault.verify_all(progress=_progress_cb)
+                    results = self._vault.verify_all(
+                        progress=_progress_cb,
+                        cancel_event=self._cancel_event,
+                    )
                     all_ok = all(ok for ok, _ in results.values())
                     msg = "All files verified intact." if all_ok else "One or more files failed verification!"
                     self.task_finished.emit(task.task_id, all_ok, msg)
 
                 elif action == "backup":
                     backup_path = Path(task.args[0])
-                    ok, msg = create_vault_backup(self._vault.vault_dir, backup_path, progress=_progress_cb)
+                    ok, msg = create_vault_backup(
+                        self._vault.vault_dir,
+                        backup_path,
+                        progress=_progress_cb,
+                        cancel_event=self._cancel_event,
+                    )
                     self.task_finished.emit(task.task_id, ok, msg)
 
                 elif action == "restore_backup":
@@ -254,6 +269,7 @@ class VaultWorker(QObject):
                         password=password,
                         keyfile_path=kf_path,
                         progress=_progress_cb,
+                        cancel_event=self._cancel_event,
                     )
                     self.task_finished.emit(task.task_id, ok, msg)
 
@@ -265,6 +281,7 @@ class VaultWorker(QObject):
                         password=password,
                         keyfile_path=kf_path,
                         progress=_progress_cb,
+                        cancel_event=self._cancel_event,
                     )
                     self.task_finished.emit(task.task_id, ok, msg)
 

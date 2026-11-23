@@ -752,6 +752,7 @@ class Vault:
         dest_dir: Path,
         remove_from_vault: bool = False,
         progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> Path:
         """Decrypt a file back to *dest_dir*.
 
@@ -759,6 +760,8 @@ class Vault:
             file_id: Hex file ID.
             dest_dir: Directory to write the decrypted file.
             remove_from_vault: If True, remove the encrypted blob and index entry.
+            progress: Progress callback.
+            cancel_event: Optional cancellation event.
 
         Returns:
             Path to the restored plaintext file.
@@ -787,7 +790,8 @@ class Vault:
 
         decrypt_file(blob_path, dest_path, mk,
                      expected_file_id=bytes.fromhex(file_id),
-                     progress=_dec_progress)
+                     progress=_dec_progress,
+                     cancel_event=cancel_event)
 
         if remove_from_vault:
             self._index.index.remove(file_id)
@@ -804,6 +808,7 @@ class Vault:
         file_id: str,
         dest_path: Path,
         progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> Path:
         """Decrypt a vault file directly to an explicit *dest_path*."""
         self._ensure_loaded()
@@ -826,6 +831,7 @@ class Vault:
             mk,
             expected_file_id=bytes.fromhex(file_id),
             progress=_dec_progress,
+            cancel_event=cancel_event,
         )
         return dest_path
 
@@ -949,7 +955,9 @@ class Vault:
     # ── Verify vault integrity ─────────────────────────────────────────────────
 
     def verify_all(
-        self, progress: Optional[ProgressCallback] = None
+        self,
+        progress: Optional[ProgressCallback] = None,
+        cancel_event: Optional[threading.Event] = None,
     ) -> dict[str, tuple[bool, str]]:
         """Authenticate every chunk of every encrypted file.
 
@@ -962,11 +970,15 @@ class Vault:
         entries = self._index.index.all_files()
         total = len(entries)
         for i, entry in enumerate(entries):
+            if cancel_event and cancel_event.is_set():
+                raise OperationCancelledError("Operation cancelled.")
             if progress:
                 progress(i, total, "Verifying…")
             try:
                 blob_path = self._get_blob_path(entry.file_id)
-                ok, msg = verify_file_integrity(blob_path, mk)
+                ok, msg = verify_file_integrity(blob_path, mk, cancel_event=cancel_event)
+            except OperationCancelledError:
+                raise
             except Exception as exc:
                 ok, msg = False, str(exc)
             results[entry.file_id] = (ok, msg)

@@ -945,10 +945,27 @@ class Dashboard(QMainWindow):
 
         lc = get_lock_controller()
         lc.register_window(target)
+        lc.register_pre_lock_hook(self._on_pre_lock)
         lc.start_listeners()
 
         win_filter = install_windows_security_filter()
         win_filter.register_window(target)
+
+    def _on_pre_lock(self) -> None:
+        """Invoked before session.lock() zeroes master key: cancel all running tasks."""
+        if self._vault_service is not None:
+            try:
+                self._vault_service.cancel_current()
+            except Exception:
+                pass
+        for w in list(self._action_workers):
+            if w.isRunning():
+                try:
+                    if hasattr(w, "cancel"):
+                        w.cancel()
+                    w.wait(500)
+                except Exception:
+                    pass
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -2960,6 +2977,7 @@ class Dashboard(QMainWindow):
             pass
         try:
             from ..system.lock_controller import get_lock_controller
+            get_lock_controller().unregister_pre_lock_hook(self._on_pre_lock)
             get_lock_controller().unregister_window(reg_win)
         except Exception:
             pass
