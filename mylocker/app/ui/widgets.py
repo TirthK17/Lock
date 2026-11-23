@@ -148,15 +148,19 @@ class PasswordStrengthBar(QWidget):
             text = f"Weak: {msg}"
             colour = Colors.DANGER
         elif score_0_4 == 3:
-            colour = "#3B82F6"
+            colour = Colors.PRIMARY
             text = "Good strength ✓"
         else:
             colour = Colors.SUCCESS
             text = "Very Strong ✓"
 
-        self._anim.setStartValue(self._bar.value())
-        self._anim.setEndValue(score_percent)
-        self._anim.start()
+        from .login_theme import is_reduced_motion
+        if is_reduced_motion():
+            self._bar.setValue(score_percent)
+        else:
+            self._anim.setStartValue(self._bar.value())
+            self._anim.setEndValue(score_percent)
+            self._anim.start()
 
         self._bar.setStyleSheet(f"""
             QProgressBar::chunk {{

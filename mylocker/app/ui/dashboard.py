@@ -670,6 +670,17 @@ class _AutoDismissBanner(QFrame):
         self.setMaximumHeight(16777215)
         self.show()
         self.adjustSize()
+
+        from .login_theme import is_reduced_motion
+        if is_reduced_motion():
+            self._opacity.setOpacity(1.0)
+            self._anim_mode = None
+            self._remaining_ms = float(self._timeout_ms)
+            self._countdown_started_ts = time.perf_counter()
+            if not self._hovered and not self._paused_externally:
+                self._countdown_timer.start()
+            return
+
         natural_h = max(48, self.sizeHint().height())
 
         self._anim_mode = "in"
@@ -687,6 +698,10 @@ class _AutoDismissBanner(QFrame):
 
     def dismiss_animated(self) -> None:
         if not self.isVisible() or self._anim_mode == "out":
+            return
+        from .login_theme import is_reduced_motion
+        if is_reduced_motion():
+            self.dismiss_immediately()
             return
         self._countdown_timer.stop()
         self._anim_timer.stop()
