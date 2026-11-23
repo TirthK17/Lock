@@ -947,6 +947,7 @@ class Dashboard(QMainWindow):
         lc.register_window(target)
         lc.register_pre_lock_hook(self._on_pre_lock)
         lc.hotkey_registration_failed.connect(self._on_hotkey_registration_failed)
+        self._hotkey_connected = True
         lc.start_listeners()
         if not lc.is_hotkey_registered and lc.hotkey_error_message:
             self._on_hotkey_registration_failed(lc.hotkey_error_message)
@@ -2986,6 +2987,14 @@ class Dashboard(QMainWindow):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        if getattr(self, "_hotkey_connected", False):
+            self._hotkey_connected = False
+            try:
+                from ..system.lock_controller import get_lock_controller
+                lc = get_lock_controller()
+                lc.hotkey_registration_failed.disconnect(self._on_hotkey_registration_failed)
+            except Exception:
+                pass
         if hasattr(self, "_speed_banner") and hasattr(self._speed_banner, "stop_all"):
             self._speed_banner.stop_all()
         if hasattr(self, "_hotkey_banner") and hasattr(self._hotkey_banner, "stop_all"):

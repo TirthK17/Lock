@@ -88,14 +88,17 @@ def test_lock_controller_forwards_hotkey_failure(qtbot):
     assert lc.is_hotkey_registered is False
 
 
-def test_dashboard_displays_hotkey_warning_banner(initialized_vault, qtbot):
+def test_dashboard_displays_hotkey_warning_banner(initialized_vault, qtbot, monkeypatch):
     vault, _ = initialized_vault
     lc = get_lock_controller()
     prev_err = lc._hotkey_error_message
     lc._hotkey_error_message = None
+    lc._hotkey_manager.stop()
+    monkeypatch.setattr("mylocker.app.system.hotkeys.GlobalHotkeyThread.start", lambda self: None)
 
     dash = Dashboard(vault)
     qtbot.addWidget(dash)
+    dash._hotkey_banner.dismiss_immediately()
     qtbot.wait(50)
 
     try:
@@ -116,11 +119,12 @@ def test_dashboard_displays_hotkey_warning_banner(initialized_vault, qtbot):
         lc._hotkey_error_message = prev_err
 
 
-def test_dashboard_shows_banner_on_startup_if_hotkey_failed_previously(initialized_vault, qtbot):
+def test_dashboard_shows_banner_on_startup_if_hotkey_failed_previously(initialized_vault, qtbot, monkeypatch):
     vault, _ = initialized_vault
     lc = get_lock_controller()
     prev_err = lc._hotkey_error_message
     lc._hotkey_error_message = "Previous conflict error"
+    monkeypatch.setattr("mylocker.app.system.hotkeys.GlobalHotkeyThread.start", lambda self: None)
 
     dash = Dashboard(vault)
     qtbot.addWidget(dash)

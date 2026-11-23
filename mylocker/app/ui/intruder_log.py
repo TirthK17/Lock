@@ -37,7 +37,7 @@ class PhotoViewerDialog(QDialog):
     def __init__(self, photo_path: Path, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Intruder Capture")
-        self.setStyleSheet(f"background: {Colors.BG_DARKEST};")
+        self.setStyleSheet(f"background: {Colors.BG_DARKEST}; color: {Colors.TEXT_PRIMARY};")
         self.setFixedSize(640, 520)
 
         layout = QVBoxLayout(self)

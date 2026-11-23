@@ -191,7 +191,7 @@ class CalculatorDisguise(QWidget):
                 btn.setStyleSheet(f"""
                     QPushButton {{
                         background-color: {Colors.ACCENT};
-                        color: white;
+                        color: {Colors.WHITE};
                         border-radius: 10px;
                     }}
                     QPushButton:hover {{
