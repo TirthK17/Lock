@@ -15,7 +15,7 @@ from __future__ import annotations
 import atexit
 import logging
 from pathlib import Path
-from typing import Optional, Set
+from typing import Callable, Optional, Set
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QWidget
@@ -41,6 +41,7 @@ class LockController(QObject):
         self._top_level_windows: Set[QWidget] = set()
         self._temp_dirs: Set[Path] = set()
         self._opened_filenames: Set[str] = set()
+        self._pre_lock_hooks: list[Callable[[], None]] = []
         self._screenshot_protected: bool = True
 
         self._idle_monitor = IdleMonitor()
@@ -81,6 +82,16 @@ class LockController(QObject):
     def track_opened_filename(self, filename: str) -> None:
         """Track a filename for targeted Recent Files cleanup."""
         self._opened_filenames.add(filename)
+
+    def register_pre_lock_hook(self, hook: Callable[[], None]) -> None:
+        """Register a callback to run BEFORE Session.lock() zeroes the Master Key."""
+        if hook not in self._pre_lock_hooks:
+            self._pre_lock_hooks.append(hook)
+
+    def unregister_pre_lock_hook(self, hook: Callable[[], None]) -> None:
+        """Unregister a previously added pre-lock hook."""
+        if hook in self._pre_lock_hooks:
+            self._pre_lock_hooks.remove(hook)
 
     # ── Configuration ─────────────────────────────────────────────────────────
 
@@ -144,6 +155,13 @@ class LockController(QObject):
 
         # 4. Wipe clipboard
         clear_clipboard()
+
+        # Run registered pre-lock hooks before zeroing the master key
+        for hook in list(self._pre_lock_hooks):
+            try:
+                hook()
+            except Exception as exc:
+                logger.error("Error executing pre-lock hook: %s", exc)
 
         # 5. Zero session Master Key in RAM
         get_session().lock()

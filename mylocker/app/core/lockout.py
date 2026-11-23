@@ -226,8 +226,17 @@ class LockoutManager:
 
             return data
         except Exception:
-            logger.warning("Lockout file corrupt — fail closed.")
-            return {"fails": 0, "last_fail_time": time.time(), "tampered": True}
+            logger.warning("Lockout file corrupt — fail closed and rewrite clean state.")
+            corrupt_state = {
+                "fails": 10,
+                "last_fail_time": time.time(),
+                "last_fail_mono": time.monotonic(),
+            }
+            try:
+                self._save_state(corrupt_state)
+            except Exception as save_err:
+                logger.error("Could not rewrite corrupt lockout state: %s", save_err)
+            return corrupt_state
 
     def _save_state(self, state: dict) -> None:
         """Sign with HMAC, optionally DPAPI protect, and atomically save."""

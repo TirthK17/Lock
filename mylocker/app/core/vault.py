@@ -772,6 +772,13 @@ class Vault:
         dest_dir = Path(dest_dir).resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / entry.original_name
+        if dest_path.exists():
+            stem = dest_path.stem
+            suffix = dest_path.suffix
+            counter = 1
+            while dest_path.exists():
+                dest_path = dest_dir / f"{stem} ({counter}){suffix}"
+                counter += 1
         mk = get_session().get_master_key()
 
         def _dec_progress(done: int, total: int) -> None:

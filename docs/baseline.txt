@@ -1,0 +1,30 @@
+# Baseline Test Run on Windows (Setup Step 6)
+Timestamp: 2026-11-23 08:39:40 +05:30
+Environment: Windows 11, Python 3.14.3, PySide6 6.12.0, Qt 6.12.0
+Command: pytest -q (with QT_QPA_PLATFORM=offscreen)
+
+Result:
+170 passed in 55.89s
+
+All 170 test cases passed across all test suites:
+- test_batch_performance_and_multiselect.py: 10 passed
+- test_dashboard_ui.py: 10 passed
+- test_end_to_end_fixes.py: 6 passed
+- test_integration.py: 2 passed
+- test_login_ui_redesign.py: 11 passed
+- test_performance_and_responsiveness.py: 10 passed
+- test_phase1.py: 39 passed
+- test_phase15_comprehensive.py: 6 passed
+- test_phase2_format_v2.py: 22 passed
+- test_phase3.py: 7 passed
+- test_phase4.py: 8 passed
+- test_phase5.py: 5 passed
+- test_phase6.py: 9 passed
+- test_phase7.py: 12 passed
+- test_ui_startup.py: 5 passed
+- test_video_player_ui.py: 7 passed
+
+Static Analysis:
+- ruff check mylocker: All checks passed (0 errors)
+- mypy mylocker/app/core: Success (no issues found in 16 source files)
+- bandit -r mylocker -ll -ii: No issues identified (0 vulnerabilities)

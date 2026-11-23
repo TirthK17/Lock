@@ -67,6 +67,14 @@ from .widgets import GlowButton, PasswordStrengthBar
 logger = logging.getLogger(__name__)
 
 
+def _is_auth_failure(exc: Exception) -> bool:
+    """Return True if exception indicates incorrect credentials, False for system/IO/config errors."""
+    from ..core.crypto import CryptoError
+    if isinstance(exc, (OSError, FileNotFoundError, PermissionError, ValueError)):
+        return False
+    return isinstance(exc, CryptoError)
+
+
 # ─── Background Login Worker ─────────────────────────────────────────────────
 
 
@@ -115,6 +123,7 @@ class LoginWorker(QThread):
             return
 
         # 1. Attempt primary vault unlock
+        primary_exc = None
         try:
             mk = self.keystore.unlock_with_password(self.password, keyfile_path=self.keyfile_path)
             self.elapsed_s = time.perf_counter() - t0
@@ -122,8 +131,8 @@ class LoginWorker(QThread):
                 self.lockout.record_success()
             self.success.emit(mk, False)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            primary_exc = exc
 
         # 2. Attempt decoy vault unlock (if configured)
         if hasattr(self.keystore, "config") and self.keystore.config.has_decoy:
@@ -138,14 +147,19 @@ class LoginWorker(QThread):
                 pass
 
         self.elapsed_s = time.perf_counter() - t0
-        # 3. Authentication failed — record in LockoutManager
+        # 3. Authentication failed — record in LockoutManager only if genuine auth error
+        is_auth_err = primary_exc is None or _is_auth_failure(primary_exc)
         count = 0
         remaining = 0.0
-        if self.lockout:
+        if is_auth_err and self.lockout:
             count = self.lockout.record_failure()
             remaining = self.lockout.get_lockout_seconds()
+        elif self.lockout:
+            remaining = self.lockout.get_lockout_seconds()
 
-        if remaining > 0:
+        if not is_auth_err and primary_exc:
+            msg = f"Vault error: {primary_exc}"
+        elif remaining > 0:
             msg = f"Too many failed attempts. Wait {remaining:.0f}s."
         else:
             suffix = f" ({count} failed attempt{'s' if count > 1 else ''})" if count > 0 else ""

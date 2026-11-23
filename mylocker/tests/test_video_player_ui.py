@@ -294,5 +294,6 @@ class TestVideoPlayerUI:
                     qtbot.waitUntil(lambda: out_path.exists() and out_path.stat().st_size > 0, timeout=5000)
 
                 assert out_path.read_bytes().startswith(b"\x00\x00\x00\x18ftypmp42")
+                qtbot.waitUntil(lambda: player._export_worker is None or not player._export_worker.isRunning(), timeout=3000)
             finally:
                 player.close()
