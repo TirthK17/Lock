@@ -31,13 +31,21 @@ HOTKEY_ID_PANIC = 9901
 class GlobalHotkeyThread(threading.Thread):
     """Background message loop listening for global Windows hotkey."""
 
-    def __init__(self, callback: Callable[[], None], key_code: int = ord('L'), modifiers: int = (MOD_CONTROL | MOD_ALT | MOD_SHIFT)) -> None:
+    def __init__(
+        self,
+        callback: Callable[[], None],
+        on_registration_failed: Optional[Callable[[int], None]] = None,
+        key_code: int = ord('L'),
+        modifiers: int = (MOD_CONTROL | MOD_ALT | MOD_SHIFT),
+    ) -> None:
         super().__init__(daemon=True, name="GlobalHotkeyThread")
         self.callback = callback
+        self.on_registration_failed = on_registration_failed
         self.key_code = key_code
         self.modifiers = modifiers
         self.running = False
         self.thread_id: Optional[int] = None
+        self.is_registered: bool = False
 
     def run(self) -> None:
         self.running = True
@@ -52,9 +60,16 @@ class GlobalHotkeyThread(threading.Thread):
         )
 
         if not success:
-            logger.warning("Failed to register global panic hotkey (GetLastError=%d)", ctypes.windll.kernel32.GetLastError())
+            err = ctypes.windll.kernel32.GetLastError()
+            logger.warning("Failed to register global panic hotkey (GetLastError=%d)", err)
+            if self.on_registration_failed:
+                try:
+                    self.on_registration_failed(err)
+                except Exception:
+                    pass
             return
 
+        self.is_registered = True
         logger.info("Global panic hotkey registered (Ctrl+Alt+Shift+L).")
 
         msg = wintypes.MSG()
@@ -86,14 +101,35 @@ class PanicHotkeyManager(QObject):
     """Qt-friendly wrapper emitting a signal when the panic hotkey is pressed."""
 
     panic_triggered = Signal()
+    registration_failed = Signal(int, str)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._thread: Optional[GlobalHotkeyThread] = None
+        self._last_error: Optional[int] = None
+
+    @property
+    def is_registered(self) -> bool:
+        return self._thread is not None and self._thread.is_registered
+
+    @property
+    def last_error(self) -> Optional[int]:
+        return self._last_error
+
+    def _on_failed(self, error_code: int) -> None:
+        self._last_error = error_code
+        msg = (
+            f"Global panic hotkey (Ctrl+Alt+Shift+L) could not be registered (error {error_code}). "
+            "It may already be in use by another application."
+        )
+        self.registration_failed.emit(error_code, msg)
 
     def start(self) -> None:
         if self._thread is None:
-            self._thread = GlobalHotkeyThread(callback=self.panic_triggered.emit)
+            self._thread = GlobalHotkeyThread(
+                callback=self.panic_triggered.emit,
+                on_registration_failed=self._on_failed,
+            )
             self._thread.start()
 
     def stop(self) -> None:

@@ -946,10 +946,23 @@ class Dashboard(QMainWindow):
         lc = get_lock_controller()
         lc.register_window(target)
         lc.register_pre_lock_hook(self._on_pre_lock)
+        lc.hotkey_registration_failed.connect(self._on_hotkey_registration_failed)
         lc.start_listeners()
+        if not lc.is_hotkey_registered and lc.hotkey_error_message:
+            self._on_hotkey_registration_failed(lc.hotkey_error_message)
 
         win_filter = install_windows_security_filter()
         win_filter.register_window(target)
+
+    def _on_hotkey_registration_failed(self, msg: str) -> None:
+        """Surfaces panic hotkey registration failure visibly in the dashboard."""
+        if hasattr(self, "_hotkey_lbl") and hasattr(self, "_hotkey_banner"):
+            self._hotkey_lbl.setText(msg)
+            self._hotkey_banner.show_animated()
+        if hasattr(self, "_protection_status") and self._protection_status is not None:
+            self._protection_status.setToolTip("Panic hotkey inactive (shortcut in use by another app)")
+        if hasattr(self, "_notif_btn") and self._notif_btn is not None:
+            self._notif_btn.setToolTip(f"Security Alert: {msg}")
 
     def _on_pre_lock(self) -> None:
         """Invoked before session.lock() zeroes master key: cancel all running tasks."""
@@ -1511,6 +1524,41 @@ class Dashboard(QMainWindow):
         self._speed_banner.register_hover_targets()
         self._speed_banner.hide()
         layout.addWidget(self._speed_banner)
+
+        # Panic hotkey registration failure banner (shown if hotkey is already registered by another process)
+        self._hotkey_banner = _AutoDismissBanner(timeout_ms=7000)
+        self._hotkey_banner.setObjectName("HotkeyBanner")
+        self._hotkey_banner.setStyleSheet("""
+            #HotkeyBanner {
+                background: rgba(239, 68, 68, 0.12);
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 12px;
+                padding: 10px 14px;
+            }
+        """)
+        hb_lay = QHBoxLayout(self._hotkey_banner)
+        hb_lay.setContentsMargins(6, 2, 6, 2)
+        hb_lay.setSpacing(12)
+
+        hb_icon = QLabel()
+        hb_icon.setPixmap(icons.get_pixmap("alert_triangle", size=20, color=DashColors.ACCENT_RED))
+        hb_icon.setStyleSheet("background: transparent;")
+        hb_lay.addWidget(hb_icon)
+
+        self._hotkey_lbl = QLabel("Panic hotkey (Ctrl+Alt+Shift+L) could not be registered.")
+        self._hotkey_lbl.setWordWrap(True)
+        self._hotkey_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-size: 12px; background: transparent;")
+        hb_lay.addWidget(self._hotkey_lbl, 1)
+
+        hb_dismiss_btn = QPushButton("Dismiss")
+        hb_dismiss_btn.setProperty("ghost", True)
+        hb_dismiss_btn.setFixedHeight(30)
+        hb_dismiss_btn.clicked.connect(self._hotkey_banner.dismiss_animated)
+        hb_lay.addWidget(hb_dismiss_btn)
+
+        self._hotkey_banner.register_hover_targets()
+        self._hotkey_banner.hide()
+        layout.addWidget(self._hotkey_banner)
 
         # Contextual Multi-Select Action Bar (shown during selection mode / active selection)
         self._selection_bar = QFrame()
@@ -2940,6 +2988,8 @@ class Dashboard(QMainWindow):
         self._cleaned_up = True
         if hasattr(self, "_speed_banner") and hasattr(self._speed_banner, "stop_all"):
             self._speed_banner.stop_all()
+        if hasattr(self, "_hotkey_banner") and hasattr(self._hotkey_banner, "stop_all"):
+            self._hotkey_banner.stop_all()
         self._stop_thumbnail_backfill(flush_pending=True)
         if hasattr(self, "_grid_render_timer") and self._grid_render_timer.isActive():
             self._grid_render_timer.stop()

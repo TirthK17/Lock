@@ -34,6 +34,7 @@ class LockController(QObject):
     """Central manager for application locking, window tracking, and cleanup."""
 
     locked = Signal(str)  # Emits reason ("user", "idle", "panic", "session_lock", "suspend", "quit")
+    hotkey_registration_failed = Signal(str)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -43,15 +44,29 @@ class LockController(QObject):
         self._opened_filenames: Set[str] = set()
         self._pre_lock_hooks: list[Callable[[], None]] = []
         self._screenshot_protected: bool = True
+        self._hotkey_error_message: Optional[str] = None
 
         self._idle_monitor = IdleMonitor()
         self._idle_monitor.idle_timeout.connect(lambda: self.lock("idle"))
 
         self._hotkey_manager = PanicHotkeyManager()
         self._hotkey_manager.panic_triggered.connect(lambda: self.lock("panic"))
+        self._hotkey_manager.registration_failed.connect(self._on_hotkey_failed)
 
         # Register emergency exit hook
         atexit.register(self.emergency_cleanup)
+
+    def _on_hotkey_failed(self, _code: int, message: str) -> None:
+        self._hotkey_error_message = message
+        self.hotkey_registration_failed.emit(message)
+
+    @property
+    def is_hotkey_registered(self) -> bool:
+        return self._hotkey_manager.is_registered
+
+    @property
+    def hotkey_error_message(self) -> Optional[str]:
+        return self._hotkey_error_message
 
     # ── Registrations ─────────────────────────────────────────────────────────
 
