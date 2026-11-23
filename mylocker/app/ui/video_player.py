@@ -93,6 +93,27 @@ from . import icons
 logger = logging.getLogger(__name__)
 
 
+# ─── Design Tokens ───────────────────────────────────────────────────────────
+
+
+class VideoColors:
+    ACCENT_LIGHT = "#A998FF"
+    ACCENT_MID = "#7B8EFF"
+    ACCENT_HOVER = "#B7C2FF"
+    ACCENT_RING = "#92A2FF"
+    BRAND = "#8B9CFF"
+    BG_DARKEST = "#07080C"
+    BG_MID = "#0B0D12"
+    BG_SURFACE = "#10121A"
+    TEXT_PRIMARY = "#F4F7FF"
+    TEXT_SECONDARY = "#CBD5E1"
+    TEXT_MUTED = "#8896AE"
+    TEXT_ROW = "#E2E8F4"
+    TEXT_BRIGHT = "#EEF2FF"
+    WHITE = "#FFFFFF"
+    DANGER = "#FF8A98"
+
+
 # ─── Formatting & Metadata Helpers ────────────────────────────────────────────
 
 
@@ -504,8 +525,8 @@ class _GlassIconButton(QPushButton):
             alpha = int(28 * self._hover_progress) if not self._active else int(42 + 18 * self._hover_progress)
             painter.fillPath(path, QColor(139, 156, 255, alpha) if self._active else QColor(255, 255, 255, alpha))
 
-        icon_color = "#B7C2FF" if self._active else (
-            "#FFFFFF" if self._hover_progress > 0.35 else "#DCE3F0"
+        icon_color = VideoColors.ACCENT_HOVER if self._active else (
+            VideoColors.WHITE if self._hover_progress > 0.35 else VideoColors.TEXT_ROW
         )
         px = icons.get_pixmap(self._icon_name, color=icon_color, size=self._icon_size)
         shift_x = self._hover_shift_x * self._hover_progress
@@ -760,8 +781,8 @@ class _TimelineScrubber(QWidget):
 
         if fill_w > 0.5:
             grad = QLinearGradient(pad, cy, thumb_x, cy)
-            grad.setColorAt(0.0, QColor("#7B8EFF"))
-            grad.setColorAt(1.0, QColor("#A998FF"))
+            grad.setColorAt(0.0, QColor(VideoColors.ACCENT_MID))
+            grad.setColorAt(1.0, QColor(VideoColors.ACCENT_LIGHT))
             painter.setBrush(QBrush(grad))
             painter.drawRoundedRect(QRectF(pad, top, fill_w, th), th / 2.0, th / 2.0)
 
@@ -856,8 +877,8 @@ class _VolumeSliderTrack(QWidget):
         fill_w = usable * ratio
         if fill_w > 0.5:
             grad = QLinearGradient(pad, cy, pad + fill_w, cy)
-            grad.setColorAt(0.0, QColor("#7B8EFF"))
-            grad.setColorAt(1.0, QColor("#A998FF"))
+            grad.setColorAt(0.0, QColor(VideoColors.ACCENT_MID))
+            grad.setColorAt(1.0, QColor(VideoColors.ACCENT_LIGHT))
             painter.setBrush(QBrush(grad))
             painter.drawRoundedRect(QRectF(pad, top, fill_w, th), 2.0, 2.0)
 
@@ -1079,7 +1100,7 @@ class _VideoCanvas(QWidget):
             grad.setColorAt(0.0, QColor(139, 156, 255, 28))
             grad.setColorAt(1.0, QColor(7, 8, 12, 0))
             painter.fillRect(rect, QBrush(grad))
-            icon_px = icons.get_pixmap("audio_wave", color="#8B9CFF", size=54)
+            icon_px = icons.get_pixmap("audio_wave", color=VideoColors.BRAND, size=54)
             painter.drawPixmap(
                 QPointF((self.width() - 54) / 2.0, (self.height() - 54) / 2.0 - 16),
                 icon_px,
@@ -1253,7 +1274,7 @@ class _LoadingOverlay(QWidget):
         painter.drawEllipse(QPointF(cx, cy), r, r)
 
         # Animated continuous arc
-        pen = QPen(QColor("#92A2FF"), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        pen = QPen(QColor(VideoColors.ACCENT_RING), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
         arc_rect = QRectF(cx - r, cy - r, r * 2.0, r * 2.0)
         painter.drawArc(arc_rect, int(-self._angle * 16), int(115 * 16))
@@ -1373,7 +1394,7 @@ class _SettingsPopover(_GlassCard):
         self._root.addWidget(self._section_label("Quality"))
         self._quality_lbl = QLabel("Auto · Source stream")
         self._quality_lbl.setStyleSheet(
-            "color: #E2E8F4; background: rgba(139,156,255,0.16); "
+            f"color: {VideoColors.TEXT_ROW}; background: rgba(139,156,255,0.16); "
             "border: 1px solid rgba(139,156,255,0.38); border-radius: 8px; "
             "padding: 6px 10px; font-size: 12px; font-weight: 600;"
         )
@@ -1419,16 +1440,16 @@ class _SettingsPopover(_GlassCard):
             selected = abs(spd - self._current_speed) < 0.01
             if selected:
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(139,156,255,0.28); color: #FFFFFF; "
+                    f"QPushButton {{ background: rgba(139,156,255,0.28); color: {VideoColors.WHITE}; "
                     "border: 1px solid rgba(139,156,255,0.65); border-radius: 7px; "
                     "font-size: 11px; font-weight: 700; padding: 0 6px; min-height: 26px; }"
                 )
             else:
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(255,255,255,0.05); color: #CBD5E1; "
+                    f"QPushButton {{ background: rgba(255,255,255,0.05); color: {VideoColors.TEXT_SECONDARY}; "
                     "border: 1px solid rgba(255,255,255,0.08); border-radius: 7px; "
                     "font-size: 11px; font-weight: 600; padding: 0 6px; min-height: 26px; }"
-                    "QPushButton:hover { background: rgba(255,255,255,0.12); color: #FFFFFF; }"
+                    f"QPushButton:hover {{ background: rgba(255,255,255,0.12); color: {VideoColors.WHITE}; }}"
                 )
 
     def _clear_layout(self, box: QVBoxLayout) -> None:
@@ -1445,16 +1466,16 @@ class _SettingsPopover(_GlassCard):
         btn.setFixedHeight(28)
         if selected:
             btn.setStyleSheet(
-                "QPushButton { text-align: left; background: rgba(139,156,255,0.20); color: #FFFFFF; "
+                f"QPushButton {{ text-align: left; background: rgba(139,156,255,0.20); color: {VideoColors.WHITE}; "
                 "border: 1px solid rgba(139,156,255,0.45); border-radius: 8px; padding: 0 10px; "
                 "font-size: 12px; font-weight: 600; min-height: 26px; }"
             )
         else:
             btn.setStyleSheet(
-                "QPushButton { text-align: left; background: transparent; color: #CBD5E1; "
+                f"QPushButton {{ text-align: left; background: transparent; color: {VideoColors.TEXT_SECONDARY}; "
                 "border: 1px solid transparent; border-radius: 8px; padding: 0 10px; "
                 "font-size: 12px; font-weight: 500; min-height: 26px; }"
-                "QPushButton:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }"
+                f"QPushButton:hover {{ background: rgba(255,255,255,0.08); color: {VideoColors.WHITE}; }}"
             )
         btn.clicked.connect(callback)
         return btn
@@ -1537,10 +1558,10 @@ class _InfoPanel(_GlassCard):
             row.setSpacing(12)
             k_lbl = QLabel(key)
             k_lbl.setFixedWidth(74)
-            k_lbl.setStyleSheet("color: #8896AE; font-size: 12px; background: transparent;")
+            k_lbl.setStyleSheet(f"color: {VideoColors.TEXT_MUTED}; font-size: 12px; background: transparent;")
             v_lbl = QLabel("—")
             v_lbl.setWordWrap(True)
-            v_lbl.setStyleSheet("color: #EEF2FF; font-size: 12px; font-weight: 600; background: transparent;")
+            v_lbl.setStyleSheet(f"color: {VideoColors.TEXT_BRIGHT}; font-size: 12px; font-weight: 600; background: transparent;")
             row.addWidget(k_lbl, 0, Qt.AlignmentFlag.AlignTop)
             row.addWidget(v_lbl, 1)
             root.addLayout(row)
@@ -1583,20 +1604,20 @@ class _ErrorCard(_GlassCard):
 
         icon_lbl = QLabel()
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setPixmap(icons.get_pixmap("alert_triangle", color="#FF8A98", size=34))
+        icon_lbl.setPixmap(icons.get_pixmap("alert_triangle", color=VideoColors.DANGER, size=34))
         icon_lbl.setStyleSheet("background: transparent;")
 
         self._title_lbl = QLabel("Unable to play this video")
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._title_lbl.setStyleSheet(
-            "color: #F4F7FF; font-size: 15px; font-weight: 700; background: transparent;"
+            f"color: {VideoColors.TEXT_PRIMARY}; font-size: 15px; font-weight: 700; background: transparent;"
         )
 
         self._msg_lbl = QLabel("The file may be corrupted, unsupported, or unavailable.")
         self._msg_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._msg_lbl.setWordWrap(True)
         self._msg_lbl.setStyleSheet(
-            "color: #9AA6BC; font-size: 12px; background: transparent;"
+            f"color: {VideoColors.TEXT_MUTED}; font-size: 12px; background: transparent;"
         )
 
         self._retry_btn = QPushButton("Try Again")
@@ -1604,7 +1625,7 @@ class _ErrorCard(_GlassCard):
         self._retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._retry_btn.setFixedHeight(36)
         self._retry_btn.setStyleSheet(
-            "QPushButton { background: rgba(139,156,255,0.22); color: #FFFFFF; "
+            f"QPushButton {{ background: rgba(139,156,255,0.22); color: {VideoColors.WHITE}; "
             "border: 1px solid rgba(139,156,255,0.55); border-radius: 10px; "
             "padding: 0 22px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background: rgba(139,156,255,0.34); }"
@@ -1650,15 +1671,15 @@ class _ActionPopover(_GlassCard):
 
         for icon_name, label, handler in items:
             btn = QPushButton(f"  {label}")
-            btn.setIcon(icons.get_icon(icon_name, "#CBD5E1", "#FFFFFF", size=15))
+            btn.setIcon(icons.get_icon(icon_name, VideoColors.TEXT_SECONDARY, VideoColors.WHITE, size=15))
             btn.setIconSize(QSize(15, 15))
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFixedHeight(32)
             btn.setStyleSheet(
-                "QPushButton { text-align: left; background: transparent; color: #E2E8F4; "
+                f"QPushButton {{ text-align: left; background: transparent; color: {VideoColors.TEXT_ROW}; "
                 "border: none; border-radius: 9px; padding: 0 10px; font-size: 12px; font-weight: 500; }"
-                "QPushButton:hover { background: rgba(255,255,255,0.10); color: #FFFFFF; }"
+                f"QPushButton:hover {{ background: rgba(255,255,255,0.10); color: {VideoColors.WHITE}; }}"
             )
             btn.clicked.connect(handler)
             self._box.addWidget(btn)
@@ -1694,9 +1715,9 @@ class _ShellContainer(QWidget):
             path.addRect(rect)
 
         base_grad = QLinearGradient(0.0, 0.0, float(self.width()), float(self.height()))
-        base_grad.setColorAt(0.0, QColor("#07080C"))
-        base_grad.setColorAt(0.55, QColor("#0B0D12"))
-        base_grad.setColorAt(1.0, QColor("#10121A"))
+        base_grad.setColorAt(0.0, QColor(VideoColors.BG_DARKEST))
+        base_grad.setColorAt(0.55, QColor(VideoColors.BG_MID))
+        base_grad.setColorAt(1.0, QColor(VideoColors.BG_SURFACE))
         painter.fillPath(path, QBrush(base_grad))
 
         # Very faint atmospheric radial glow behind hero
@@ -1855,7 +1876,7 @@ class VideoPlayer(QDialog):
 
         self._title_lbl = QLabel(self._file_name, self._top_bar)
         self._title_lbl.setStyleSheet(
-            "color: #F4F7FF; font-size: 14px; font-weight: 600; background: transparent;"
+            f"color: {VideoColors.TEXT_PRIMARY}; font-size: 14px; font-weight: 600; background: transparent;"
         )
         self._title_lbl.setMinimumWidth(80)
 
@@ -1995,7 +2016,7 @@ class VideoPlayer(QDialog):
 
         self._time_lbl = QLabel("00:00 / 00:00", self._bottom_bar)
         self._time_lbl.setStyleSheet(
-            "color: #E2E8F4; font-family: 'Consolas', 'Cascadia Mono', 'Segoe UI'; "
+            f"color: {VideoColors.TEXT_ROW}; font-family: 'Consolas', 'Cascadia Mono', 'Segoe UI'; "
             "font-size: 12px; font-weight: 600; background: transparent;"
         )
         self._time_lbl.setFixedWidth(96)
@@ -2022,10 +2043,10 @@ class VideoPlayer(QDialog):
         self._quality_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         self._quality_pill.setFixedHeight(24)
         self._quality_pill.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,0.06); color: #E2E8F4; "
+            f"QPushButton {{ background: rgba(255,255,255,0.06); color: {VideoColors.TEXT_ROW}; "
             "border: 1px solid rgba(255,255,255,0.22); border-radius: 6px; "
             "padding: 0 7px; font-size: 10px; font-weight: 700; min-height: 22px; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.14); color: #FFFFFF; }"
+            f"QPushButton:hover {{ background: rgba(255,255,255,0.14); color: {VideoColors.WHITE}; }}"
         )
         self._quality_pill.clicked.connect(self._toggle_settings_popover)
 

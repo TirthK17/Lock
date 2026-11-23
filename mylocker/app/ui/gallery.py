@@ -189,7 +189,7 @@ class GalleryViewer(QDialog):
         # ── Top toolbar ──
         toolbar = QWidget()
         toolbar.setFixedHeight(50)
-        toolbar.setStyleSheet(f"background: rgba(10,13,20,0.95); border-bottom: 1px solid {Colors.BORDER};")
+        toolbar.setStyleSheet(f"background: {Colors.GLASS}; border-bottom: 1px solid {Colors.BORDER};")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 0, 16, 0)
 
@@ -234,7 +234,7 @@ class GalleryViewer(QDialog):
         # ── Bottom navigation ──
         nav = QWidget()
         nav.setFixedHeight(60)
-        nav.setStyleSheet(f"background: rgba(10,13,20,0.95); border-top: 1px solid {Colors.BORDER};")
+        nav.setStyleSheet(f"background: {Colors.GLASS}; border-top: 1px solid {Colors.BORDER};")
         nav_layout = QHBoxLayout(nav)
         nav_layout.setContentsMargins(20, 0, 20, 0)
 
