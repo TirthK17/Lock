@@ -72,13 +72,16 @@ class LoginColors:
     CARD_GLOW = QColor(56, 189, 248, 55)
 
     INPUT_BG = QColor(10, 18, 30, 235)        # rgba(10, 18, 30, 0.92)
+    INPUT_BG_HEX = "#070E18"
     INPUT_BORDER = QColor(70, 110, 160, 80)   # rgba(70, 110, 160, 0.31)
     INPUT_FOCUS = "#38BDF8"
 
     TEXT_PRIMARY = "#FFFFFF"
+    TEXT_TITLE = "#F0F5FC"
     TEXT_SECONDARY = "#8FA0B8"
     TEXT_MUTED = "#64748B"
     SUBTITLE = "#8FA0B8"
+    LINK_HOVER = "#92BBEA"
 
     TITLE_PERSONAL = "#FFFFFF"
     TITLE_VAULT = "#58A6FF"

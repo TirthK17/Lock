@@ -220,7 +220,7 @@ class RecoveryKeyDialog(QDialog):
         self._key_input.setFixedHeight(44)
         self._key_input.setStyleSheet(f"""
             QLineEdit {{
-                background: #070E18;
+                background: {LoginColors.INPUT_BG_HEX};
                 color: {LoginColors.ICE_BLUE};
                 border: 1px solid rgba(110, 150, 190, 0.28);
                 border-radius: 10px;
@@ -434,7 +434,7 @@ class ForgotPasswordDialog(QDialog):
         self._key_input.setFixedHeight(42)
         self._key_input.setStyleSheet(f"""
             QLineEdit {{
-                background: #070E18;
+                background: {LoginColors.INPUT_BG_HEX};
                 color: {LoginColors.ICE_BLUE};
                 border: 1px solid rgba(110, 150, 190, 0.28);
                 border-radius: 10px;
@@ -534,7 +534,7 @@ class ForgotPasswordDialog(QDialog):
         btn_row.addStretch()
 
         self._submit_btn = GlowButton(" Reset Password & Unlock")
-        self._submit_btn.setIcon(icons.get_icon("unlock", color=Colors.TEXT_PRIMARY, active_color="#FFFFFF"))
+        self._submit_btn.setIcon(icons.get_icon("unlock", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
         self._submit_btn.clicked.connect(self._on_submit)
         btn_row.addWidget(self._submit_btn)
         layout.addLayout(btn_row)
@@ -822,7 +822,7 @@ class LoginScreen(QWidget):
         pw_ico.setStyleSheet("background: transparent;")
         pw_title = QLabel("Master Password", self._card)
         pw_title.setFont(LoginTypography.font(14, QFont.Weight.DemiBold))
-        pw_title.setStyleSheet("color: #F0F5FC; background: transparent; font-size: 14px; font-weight: 600;")
+        pw_title.setStyleSheet(f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;")
         pw_hdr.addWidget(pw_ico)
         pw_hdr.addWidget(pw_title)
         pw_hdr.addStretch()
@@ -846,7 +846,7 @@ class LoginScreen(QWidget):
         kf_ico.setStyleSheet("background: transparent;")
         self._kf_title_lbl = QLabel("Key File", self._card)
         self._kf_title_lbl.setFont(LoginTypography.font(14, QFont.Weight.DemiBold))
-        self._kf_title_lbl.setStyleSheet("color: #F0F5FC; background: transparent; font-size: 14px; font-weight: 600;")
+        self._kf_title_lbl.setStyleSheet(f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;")
         kf_hdr.addWidget(kf_ico)
         kf_hdr.addWidget(self._kf_title_lbl)
         kf_hdr.addStretch()
@@ -919,7 +919,7 @@ class LoginScreen(QWidget):
                 min-height: 14px;
             }
             QPushButton:hover, QPushButton:focus {
-                color: #92BBEA;
+                color: {LoginColors.LINK_HOVER};
             }
         """)
         self._switch_btn.clicked.connect(self.switch_vault_requested.emit)
