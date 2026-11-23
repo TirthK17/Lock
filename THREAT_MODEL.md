@@ -26,7 +26,7 @@ This document details the architectural threat model for **Personal Vault**, def
   - `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` suppresses screen recording and screenshots.
   - Windows Search Indexing explicitly excluded on vault folders.
   - Targeted recent files cleanup on lock.
-  - Instant panic hotkey (`Win+Alt+L`) and lock on session lock/sleep.
+  - Instant panic hotkey (`Ctrl+Alt+Shift+L`) and lock on session lock/sleep.
   - Calculator disguise mode (`calc.exe` lookalike with PIN entry).
 
 ### Persona B: Unattended Local User (Owner Stepped Away)

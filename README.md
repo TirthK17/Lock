@@ -18,7 +18,7 @@
 - 🎬 **Secure Streaming Media Player**: In-memory `QIODevice` streaming playback for high-bitrate 4K/60fps encrypted videos and multi-format audio without disk caching.
 - 📷 **Intruder Defense & Webcam Capture**: Automatically captures encrypted intruder snapshots on failed password attempts via Windows DPAPI.
 - 🧮 **Calculator Camouflage Disguise**: Disguises the vault as a fully functional Windows Calculator (`calc.exe` clone); entry of a secret numeric PIN unlocks the vault.
-- 🛡️ **Defensive Screen & Process Protection**: Uses Windows API `SetWindowDisplayAffinity` to prevent screen scraping/recording, alongside global panic lock (`Ctrl+Shift+L`) and auto-lock on session switch.
+- 🛡️ **Defensive Screen & Process Protection**: Uses Windows API `SetWindowDisplayAffinity` to prevent screen scraping/recording, alongside global panic lock (`Ctrl+Alt+Shift+L`) and auto-lock on session switch.
 - 🔑 **Hardware Calibrated Argon2id & USB 2FA**: Dynamic hardware CPU benchmark for Argon2id parameters, plus two-factor keyfile authentication via USB drive.
 
 ---
