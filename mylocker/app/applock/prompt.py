@@ -28,6 +28,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..core.keystore import Keystore
+from ..core.lockout import LockoutManager
+from ..core.settings_store import SettingsStore
 from ..ui.theme import Colors
 from ..ui.widgets import FadeLabel, GlowButton
 from .process_utils import resume_process, terminate_process
@@ -49,14 +52,23 @@ class AppLockPrompt(QDialog):
         exe_name: str,
         verify_password_fn: Callable[[str], bool],
         parent: Optional[QWidget] = None,
+        lockout: Optional[LockoutManager] = None,
+        settings_store: Optional[SettingsStore] = None,
+        keystore: Optional[Keystore] = None,
+        on_lockout_triggered: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__(parent)
         self.pid = pid
         self.exe_name = exe_name
         self.verify_password_fn = verify_password_fn
+        self.lockout = lockout
+        self.settings_store = settings_store
+        self.keystore = keystore
+        self.on_lockout_triggered = on_lockout_triggered
         self.attempts = 0
         self.max_attempts = 3
         self.resolved = False
+        self._photo_threads: list = []
 
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint |
@@ -68,6 +80,7 @@ class AppLockPrompt(QDialog):
 
         self._build_ui()
         self._apply_screenshot_protection()
+        self._check_initial_lockout()
 
     def _apply_screenshot_protection(self) -> None:
         try:
@@ -172,27 +185,129 @@ class AppLockPrompt(QDialog):
         # Auto focus
         QTimer.singleShot(100, self.pw_input.setFocus)
 
+    def _check_initial_lockout(self) -> None:
+        if not self.lockout:
+            return
+        try:
+            self.lockout.check_lockout()
+        except Exception:
+            remaining = self.lockout.get_lockout_seconds()
+            self.error_lbl.show_text(f"Too many failed attempts. Wait {remaining:.0f}s.", Colors.DANGER)
+            self.pw_input.setEnabled(False)
+            if self.on_lockout_triggered:
+                try:
+                    self.on_lockout_triggered()
+                except Exception:
+                    pass
+            QTimer.singleShot(1500, self._terminate)
+
+    def _capture_intruder_photo(self) -> None:
+        if not self.lockout:
+            return
+        try:
+            from ..system.webcam import IntruderPhotoCaptureThread
+            thread = IntruderPhotoCaptureThread(self.lockout.vault_dir, self.lockout, parent=self)
+            self._photo_threads.append(thread)
+            thread.finished.connect(
+                lambda: self._photo_threads.remove(thread) if thread in self._photo_threads else None
+            )
+            thread.start()
+        except Exception as exc:
+            logger.warning("Failed to start background intruder capture thread: %s", exc)
+
     def _verify(self) -> None:
         entered = self.pw_input.text()
         if not entered:
             return
 
+        if self.lockout:
+            try:
+                self.lockout.check_lockout()
+            except Exception:
+                remaining = self.lockout.get_lockout_seconds()
+                self.error_lbl.show_text(
+                    f"Too many failed attempts. Wait {remaining:.0f}s. Terminating app…",
+                    Colors.DANGER,
+                )
+                self.pw_input.setEnabled(False)
+                if self.on_lockout_triggered:
+                    try:
+                        self.on_lockout_triggered()
+                    except Exception:
+                        pass
+                QTimer.singleShot(1500, self._terminate)
+                return
+
         if self.verify_password_fn(entered):
+            if self.lockout:
+                try:
+                    self.lockout.record_success()
+                except Exception:
+                    pass
             self.resolved = True
             resume_process(self.pid)
             self.unlocked.emit(self.pid, self.exe_name)
             self.accept()
         else:
             self.attempts += 1
-            remaining = self.max_attempts - self.attempts
-            if remaining <= 0:
-                self.error_lbl.show_text("Too many failed attempts. Terminating app…", Colors.DANGER)
+            count = 0
+            remaining = 0.0
+            if self.lockout:
+                try:
+                    count = self.lockout.record_failure()
+                    remaining = self.lockout.get_lockout_seconds()
+                except Exception as exc:
+                    logger.warning("LockoutManager failure recording error: %s", exc)
+
+                # Capture webcam photo in background thread on failed attempt
+                self._capture_intruder_photo()
+
+            # Emergency self-destruct if enabled and 20 failed attempts reached
+            if (
+                self.settings_store
+                and self.settings_store.get("self_destruct_enabled", False)
+                and count >= 20
+                and self.keystore
+            ):
+                try:
+                    self.keystore.self_destruct()
+                    self.error_lbl.show_text(
+                        "Vault self-destruct activated after 20 failed attempts.",
+                        Colors.DANGER,
+                    )
+                    self.pw_input.setEnabled(False)
+                    if self.on_lockout_triggered:
+                        try:
+                            self.on_lockout_triggered()
+                        except Exception:
+                            pass
+                    QTimer.singleShot(1500, self._terminate)
+                    return
+                except Exception:
+                    pass
+
+            if remaining > 0:
+                self.error_lbl.show_text(
+                    f"Too many failed attempts. Wait {remaining:.0f}s. Terminating app…",
+                    Colors.DANGER,
+                )
                 self.pw_input.setEnabled(False)
-                QTimer.singleShot(1200, self._terminate)
+                if self.on_lockout_triggered:
+                    try:
+                        self.on_lockout_triggered()
+                    except Exception:
+                        pass
+                QTimer.singleShot(1500, self._terminate)
             else:
-                self.error_lbl.show_text(f"Incorrect password ({remaining} attempts remaining)", Colors.DANGER)
-                self.pw_input.clear()
-                self.pw_input.setFocus()
+                rem_local = self.max_attempts - self.attempts
+                if rem_local <= 0:
+                    self.error_lbl.show_text("Too many failed attempts. Terminating app…", Colors.DANGER)
+                    self.pw_input.setEnabled(False)
+                    QTimer.singleShot(1200, self._terminate)
+                else:
+                    self.error_lbl.show_text(f"Incorrect password ({rem_local} attempts remaining)", Colors.DANGER)
+                    self.pw_input.clear()
+                    self.pw_input.setFocus()
 
     def _terminate(self) -> None:
         self.resolved = True
@@ -208,6 +323,10 @@ class AppLockPrompt(QDialog):
             super().keyPressEvent(event)
 
     def closeEvent(self, event):
+        for th in list(self._photo_threads):
+            if th.isRunning():
+                th.wait(2000)
+        self._photo_threads.clear()
         if not self.resolved:
             terminate_process(self.pid)
             self.cancelled.emit(self.pid, self.exe_name)

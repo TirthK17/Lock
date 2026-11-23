@@ -478,7 +478,16 @@ class PersonalVaultApp:
             except Exception:
                 return False
 
-        prompt = AppLockPrompt(pid, exe_name, verify_fn, self.stack)
+        prompt = AppLockPrompt(
+            pid=pid,
+            exe_name=exe_name,
+            verify_password_fn=verify_fn,
+            parent=self.stack,
+            lockout=self.lockout,
+            settings_store=self.settings,
+            keystore=self.keystore,
+            on_lockout_triggered=lambda: self.lock_vault("lockout"),
+        )
         if prompt.exec():
             mins = applock_cfg.get_grace_minutes()
             if mins > 0:
