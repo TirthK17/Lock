@@ -330,7 +330,7 @@ class SetupWizard(QWidget):
         back.clicked.connect(lambda: self._go(1))
         # Button triggers Argon2 benchmark & vault setup!
         create_btn = GlowButton(" Create Vault")
-        create_btn.setIcon(icons.get_icon("shield", color=Colors.TEXT_PRIMARY, active_color="#FFFFFF"))
+        create_btn.setIcon(icons.get_icon("shield", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
         create_btn.clicked.connect(self._on_create_vault_clicked)
         btn_row.addWidget(back)
         btn_row.addStretch()
@@ -528,7 +528,7 @@ class SetupWizard(QWidget):
         back.setProperty("flat", True)
         back.clicked.connect(lambda: self._go(4))
         self._finish_btn = GlowButton(" Finish & Open Vault")
-        self._finish_btn.setIcon(icons.get_icon("check", color=Colors.TEXT_PRIMARY, active_color="#FFFFFF"))
+        self._finish_btn.setIcon(icons.get_icon("check", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
         self._finish_btn.setEnabled(False)
         self._finish_btn.clicked.connect(self._finish_setup)
         btn_row.addWidget(back)
