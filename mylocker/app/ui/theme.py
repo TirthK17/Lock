@@ -32,6 +32,7 @@ class Colors:
     DANGER_DARK  = "#D95365"
 
     # Text
+    WHITE        = "#FFFFFF"
     TEXT_PRIMARY = "#F1F5FB"      # High contrast clean white
     TEXT_SECONDARY = "#A7B3C5"    # Clean slate gray
     TEXT_MUTED   = "#748298"      # Muted subtext
@@ -175,6 +176,19 @@ QTextEdit {{
     border-radius: 8px;
     padding: 8px;
     selection-background-color: {Colors.ACCENT};
+}}
+
+QSpinBox {{
+    background-color: {Colors.BG_INPUT};
+    color: {Colors.TEXT_PRIMARY};
+    border: 1.5px solid {Colors.BORDER};
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 13px;
+    min-height: 32px;
+}}
+QSpinBox:focus {{
+    border-color: {Colors.BORDER_FOCUS};
 }}
 
 /* ── Labels ──────────────────────────────────────────────────────────────── */

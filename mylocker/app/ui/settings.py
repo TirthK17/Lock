@@ -258,7 +258,7 @@ class SettingsUI(QWidget):
 
         backup_btns = QHBoxLayout()
         export_btn = GlowButton(" Export Encrypted Backup")
-        export_btn.setIcon(icons.get_icon("download", color=Colors.TEXT_PRIMARY, active_color="#FFFFFF"))
+        export_btn.setIcon(icons.get_icon("download", color=Colors.TEXT_PRIMARY, active_color=Colors.WHITE))
         export_btn.clicked.connect(self._export_backup)
 
         restore_btn = QPushButton(" Restore from Backup")
@@ -293,7 +293,7 @@ class SettingsUI(QWidget):
         destruct_layout.addWidget(self.destruct_check)
 
         destruct_btn = QPushButton(" Destroy Vault Now (Emergency Wipe)")
-        destruct_btn.setIcon(icons.get_icon("alert_triangle", color=Colors.DANGER, active_color="#FFFFFF"))
+        destruct_btn.setIcon(icons.get_icon("alert_triangle", color=Colors.DANGER, active_color=Colors.WHITE))
         destruct_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: rgba(255, 113, 131, 0.15);
@@ -305,7 +305,7 @@ class SettingsUI(QWidget):
             }}
             QPushButton:hover {{
                 background-color: {Colors.DANGER};
-                color: #FFFFFF;
+                color: {Colors.WHITE};
             }}
         """)
         destruct_btn.setFixedWidth(280)
@@ -585,7 +585,7 @@ class SettingsUI(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Setup Decoy Password")
         dlg.setFixedSize(380, 220)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD};")
+        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
         lay = QVBoxLayout(dlg)
 
         pw1 = QLineEdit()
@@ -879,7 +879,7 @@ class SettingsUI(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle("Confirm Emergency Self-Destruct")
         dlg.setFixedSize(440, 260)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD};")
+        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
         lay = QVBoxLayout(dlg)
         lay.setContentsMargins(20, 20, 20, 20)
         lay.setSpacing(12)
@@ -904,7 +904,7 @@ class SettingsUI(QWidget):
         cancel_btn.clicked.connect(dlg.reject)
 
         destroy_btn = QPushButton("Permanently Wipe Keys")
-        destroy_btn.setStyleSheet(f"background-color: {Colors.DANGER}; color: #FFFFFF; font-weight: bold; padding: 8px 16px; border-radius: 6px;")
+        destroy_btn.setStyleSheet(f"background-color: {Colors.DANGER}; color: {Colors.WHITE}; font-weight: bold; padding: 8px 16px; border-radius: 6px;")
 
         def _do_wipe():
             if confirm_input.text().strip() != "DESTROY MY VAULT":
