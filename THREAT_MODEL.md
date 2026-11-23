@@ -48,6 +48,10 @@ This document details the architectural threat model for **Personal Vault**, def
   - Argon2id key derivation calibrated to $\approx 1.0$ second per attempt on target CPU ($\ge 256$ MiB memory cost, $t \ge 3$, $p=4$).
   - Optional USB keyfile required to assemble KEK (`Argon2id(pw) || SHA256(keyfile)`).
   - Recommended pairing with BitLocker Full Disk Encryption.
+- **Security Boundary & Local-Only Defense Notice**:
+  - The progressive lockout counter (`.lockout.dat`), exponential backoff delays, intruder logging, and webcam capture triggers are **local application-level defenses** enforcing rate limits solely on the interactive Personal Vault application running on the local host.
+  - If an adversary exfiltrates or copies raw vault files (`vault.config`, index files, and encrypted ciphertext blobs) to an external machine, the local lockout mechanism cannot enforce rate limits in the external cracking environment.
+  - Against offline attacks on copied vault data, resistance against dictionary and brute-force attacks is constrained strictly by the memory-hardness and computational cost of **Argon2id**, user password entropy (12+ character non-dictionary passphrase recommended), optional USB keyfile 2FA, and full-disk BitLocker encryption.
 
 ### Persona D: Coercive Adversary ("$5 Wrench Attack")
 - **Profile**: Robber or adversary coercing the user into providing their vault password.
@@ -116,7 +120,7 @@ User Password + Salt (16 bytes)
 
 | Threat | Residual Risk | Acceptable? | Recommended User Action |
 | :--- | :--- | :--- | :--- |
-| Brute force offline password cracking | Very Low (Argon2id high memory/time parameters) | Yes | Use 12+ character non-dictionary password |
+| Brute force offline password cracking | Very Low (Argon2id high memory/time parameters; note: local lockout counter does not apply offline) | Yes | Use 12+ character non-dictionary password, enable USB keyfile 2FA |
 | Shoulder surfing / unauthorized screenshotting | Negligible (WDA display affinity) | Yes | Keep display affinity enabled |
 | Data corruption during power loss | Negligible (Atomic write + journal + rolling backups) | Yes | None |
 | SSD Flash Wear-Leveling Remanence | Medium (Physical hardware limitation of NAND flash) | Yes | Enable BitLocker Full Disk Encryption |
