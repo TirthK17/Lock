@@ -805,10 +805,12 @@ class LoginScreen(QWidget):
         self._recovery_btn.setIconSize(QSize(15, 15))
         self._recovery_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._recovery_btn.setToolTip("Reset your Master Password or unlock using your 256-bit recovery key")
+        self._recovery_btn.setAccessibleName("Use Recovery Key")
         self._recovery_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                border: none;
+                border: 2px solid transparent;
+                border-radius: {Tokens.radius.CONTROL}px;
                 color: {LoginColors.RECOVERY_BLUE};
                 font-size: 14px;
                 font-weight: 500;
@@ -816,6 +818,10 @@ class LoginScreen(QWidget):
                 min-height: 22px;
             }}
             QPushButton:hover {{
+                color: {LoginColors.ICE_BLUE};
+            }}
+            QPushButton:focus {{
+                border: 2px solid {Tokens.colors.accent};
                 color: {LoginColors.ICE_BLUE};
             }}
         """)
@@ -832,14 +838,18 @@ class LoginScreen(QWidget):
         self._switch_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent;
-                border: none;
+                border: 2px solid transparent;
+                border-radius: 4px;
                 color: transparent;
                 font-size: 11px;
-                padding: 0px;
+                padding: 0px 4px;
                 min-height: 16px;
             }}
             QPushButton:hover, QPushButton:focus {{
                 color: {LoginColors.LINK_HOVER};
+            }}
+            QPushButton:focus {{
+                border: 2px solid {Tokens.colors.accent};
             }}
         """)
         self._switch_btn.clicked.connect(self.switch_vault_requested.emit)

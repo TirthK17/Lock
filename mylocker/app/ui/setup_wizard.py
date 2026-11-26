@@ -219,6 +219,8 @@ class SetupWizard(QWidget):
         self._next_btn_0.setMinimumHeight(42)
         self._next_btn_0.clicked.connect(lambda: self._go(1))
         lay.addWidget(self._next_btn_0)
+        QWidget.setTabOrder(self._loc_edit, browse_btn)
+        QWidget.setTabOrder(browse_btn, self._next_btn_0)
         return self._page(card)
 
     def _start_bitlocker_check_async(self, drive_path: Path) -> None:
@@ -310,6 +312,9 @@ class SetupWizard(QWidget):
         btn_row.addStretch()
         btn_row.addWidget(self._next_btn_1)
         lay.addLayout(btn_row)
+        QWidget.setTabOrder(self._pw1, self._pw2)
+        QWidget.setTabOrder(self._pw2, self._next_btn_1)
+        QWidget.setTabOrder(self._next_btn_1, back)
         return self._page(card)
 
     def _on_pw_changed(self, text: str) -> None:
@@ -546,6 +551,10 @@ class SetupWizard(QWidget):
         btn_row.addStretch()
         btn_row.addWidget(self._finish_btn)
         lay.addLayout(btn_row)
+        QWidget.setTabOrder(self._verify_edits[0], self._verify_edits[1])
+        QWidget.setTabOrder(self._verify_edits[1], self._verify_edits[2])
+        QWidget.setTabOrder(self._verify_edits[2], self._finish_btn)
+        QWidget.setTabOrder(self._finish_btn, back)
         return self._page(card)
 
     def _prepare_verify_page(self) -> None:

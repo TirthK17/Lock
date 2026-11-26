@@ -406,6 +406,7 @@ class PasswordInputField(QFrame):
         self.line_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.line_edit.setPlaceholderText("Master password")
         self.line_edit.setAccessibleName("Master password")
+        self.setFocusProxy(self.line_edit)
 
         self._eye_btn = QPushButton(self)
         self._eye_btn.setFixedSize(28, 28)

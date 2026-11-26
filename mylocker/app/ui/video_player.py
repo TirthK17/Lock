@@ -411,6 +411,7 @@ class _GlassIconButton(QPushButton):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         if tooltip:
             self.setToolTip(tooltip)
+        self.setAccessibleName(tooltip or icon_name.replace("_", " ").title())
 
         self._hover_anim = QVariantAnimation(self)
         self._hover_anim.setDuration(190)

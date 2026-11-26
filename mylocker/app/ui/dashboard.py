@@ -703,7 +703,28 @@ class Dashboard(QMainWindow):
         self.setStatusBar(self._status_bar)
 
         self._apply_dashboard_theme()
+        self._setup_tab_order()
         self._update_status()
+
+    def _setup_tab_order(self) -> None:
+        """Establish a logical keyboard Tab order across title bar, workspace toolbar, pills, and sidebar."""
+        chain: list[QWidget] = [
+            self._title_bar.ss_btn,
+            self._title_bar.notif_btn,
+            self._toolbar.search_bar._input,
+            self._toolbar.btn_grid_mode,
+            self._toolbar.btn_list_mode,
+            self._toolbar.sort_combo,
+            self._toolbar.select_btn,
+            self._toolbar.add_btn,
+            *self._category_pills,
+            *self._sidebar.nav_items,
+            self._sidebar.nav_bin,
+            self._sidebar.lock_btn,
+        ]
+        visible_chain = [w for w in chain if w is not None]
+        for a, b in zip(visible_chain, visible_chain[1:], strict=False):
+            QWidget.setTabOrder(a, b)
 
     def _replace_stack_page(self, index: int, widget: QWidget) -> None:
         old = self._page_stack.widget(index)

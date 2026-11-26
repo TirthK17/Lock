@@ -168,17 +168,17 @@ LIGHT_PALETTE = ThemePalette(
     border_subtle="rgba(0, 0, 0, 0.05)",
     border_strong="rgba(0, 0, 0, 0.16)",
     border_focus="#5269D8",
-    success="#4CC9A0",
-    success_tint="rgba(76, 201, 160, 0.14)",
-    success_border="rgba(76, 201, 160, 0.40)",
-    warning="#E8B86A",
-    warning_tint="rgba(232, 184, 106, 0.16)",
-    warning_border="rgba(232, 184, 106, 0.44)",
-    danger="#F0707F",
-    danger_hover="#E25A6B",
-    danger_pressed="#C94557",
-    danger_tint="rgba(240, 112, 127, 0.14)",
-    danger_border="rgba(240, 112, 127, 0.42)",
+    success="#167A56",
+    success_tint="rgba(22, 122, 86, 0.12)",
+    success_border="rgba(22, 122, 86, 0.36)",
+    warning="#8A5400",
+    warning_tint="rgba(138, 84, 0, 0.12)",
+    warning_border="rgba(138, 84, 0, 0.36)",
+    danger="#C2273F",
+    danger_hover="#A91F35",
+    danger_pressed="#8F182B",
+    danger_tint="rgba(194, 39, 63, 0.12)",
+    danger_border="rgba(194, 39, 63, 0.36)",
     info="#5269D8",
     hover_fill="rgba(0, 0, 0, 0.04)",
     pressed_fill="rgba(0, 0, 0, 0.08)",
@@ -373,8 +373,8 @@ def build_global_qss(palette: Optional[ThemePalette] = None) -> str:
     check_rule = f"image: url({check_icon});" if check_icon else ""
     chev_rule = f"image: url({chev_icon}); width: 14px; height: 14px;" if chev_icon else ""
 
-    # Compute high-contrast danger label for solid light-mode danger button
-    danger_solid_text = p.on_danger if p.is_dark else "#17191F"
+    # Compute high-contrast danger label for solid danger button
+    danger_solid_text = p.on_danger
 
     return f"""
 /* ── Base ───────────────────────────────────────────────────────────────── */
@@ -606,6 +606,9 @@ QPushButton[variant="danger"]:pressed, QPushButton[danger="true"]:pressed {{
     background-color: {p.danger_pressed};
     color: {danger_solid_text};
 }}
+QPushButton[variant="danger"]:focus, QPushButton[danger="true"]:focus {{
+    border: 2px solid {p.accent};
+}}
 
 QPushButton[variant="ghost"], QPushButton[flat="true"] {{
     background-color: transparent;
@@ -619,6 +622,9 @@ QPushButton[variant="ghost"]:hover, QPushButton[flat="true"]:hover {{
 }}
 QPushButton[variant="ghost"]:pressed, QPushButton[flat="true"]:pressed {{
     background-color: {p.pressed_fill};
+}}
+QPushButton[variant="ghost"]:focus, QPushButton[flat="true"]:focus {{
+    border: 2px solid {p.accent};
 }}
 
 QPushButton[variant="icon"] {{
@@ -757,6 +763,9 @@ QRadioButton::indicator:checked {{
     border: 5px solid {p.accent};
     background-color: {p.on_accent};
 }}
+QRadioButton:focus::indicator {{
+    border: 2px solid {p.accent};
+}}
 
 /* ── Progress Bars (solid accent, zero gradient) ────────────────────────── */
 QProgressBar {{
@@ -788,13 +797,20 @@ QSlider::handle:horizontal {{
     margin: -5px 0;
     border-radius: 7px;
 }}
+QSlider::handle:horizontal:focus {{
+    border: 2px solid {p.text};
+}}
 
 /* ── Lists, Trees, Tables ───────────────────────────────────────────────── */
 QListWidget, QListView, QTreeWidget, QTableWidget {{
     background-color: transparent;
-    border: none;
+    border: 1px solid transparent;
+    border-radius: {r.CARD}px;
     outline: none;
     color: {p.text};
+}}
+QListWidget:focus, QListView:focus, QTreeWidget:focus, QTableWidget:focus {{
+    border: 2px solid {p.accent};
 }}
 QListWidget::item, QListView::item, QTreeWidget::item, QTableWidget::item {{
     padding: 6px 8px;

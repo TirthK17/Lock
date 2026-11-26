@@ -113,6 +113,7 @@ class TitleAreaBar(QFrame):
                     min-height: 24px;
                 }}
                 QPushButton:hover {{ border-color: {p.success}; }}
+                QPushButton:focus {{ border: 2px solid {p.accent}; }}
             """)
         else:
             self.ss_btn.setText(" Unprotected")
@@ -129,6 +130,7 @@ class TitleAreaBar(QFrame):
                     min-height: 24px;
                 }}
                 QPushButton:hover {{ border-color: {p.warning}; }}
+                QPushButton:focus {{ border: 2px solid {p.accent}; }}
             """)
 
 

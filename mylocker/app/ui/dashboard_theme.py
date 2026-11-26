@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QImage,
@@ -587,6 +587,9 @@ class VaultSearchBar(QFrame):
         self._input.setPlaceholderText(placeholder)
         self._input.setAccessibleName("Search vault files")
         self._input.textChanged.connect(self.textChanged.emit)
+        self._input.installEventFilter(self)
+        self.setFocusProxy(self._input)
+        self.setProperty("focused", "false")
         lay.addWidget(self._input, 1)
 
         self._shortcut_badge = QLabel("Ctrl+F", self)
@@ -607,7 +610,7 @@ class VaultSearchBar(QFrame):
             #VaultSearchBar:hover {{
                 border-color: {p.border_strong};
             }}
-            #VaultSearchBar:focus-within {{
+            #VaultSearchBar[focused="true"] {{
                 border: 2px solid {p.accent};
             }}
         """)
@@ -639,6 +642,13 @@ class VaultSearchBar(QFrame):
 
     def setFocus(self) -> None:
         self._input.setFocus()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._input and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
+            self.setProperty("focused", "true" if event.type() == QEvent.Type.FocusIn else "false")
+            self.style().unpolish(self)
+            self.style().polish(self)
+        return super().eventFilter(obj, event)
 
     def hasFocus(self) -> bool:
         return self._input.hasFocus()

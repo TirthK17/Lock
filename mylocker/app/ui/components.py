@@ -19,6 +19,7 @@ from unittest.mock import Base as _MockBase
 from PySide6.QtCore import (
     Property,
     QEasingCurve,
+    QEvent,
     QPoint,
     QRect,
     QRectF,
@@ -225,6 +226,9 @@ class SearchBar(QFrame):
         self._input.setAccessibleName(placeholder.rstrip("…"))
         self._input.textChanged.connect(self._on_text_changed)
         self._input.returnPressed.connect(lambda: self.submitted.emit(self._input.text()))
+        self._input.installEventFilter(self)
+        self.setFocusProxy(self._input)
+        self.setProperty("focused", "false")
         lay.addWidget(self._input, 1)
 
         self._clear_btn = IconButton("x", tooltip="Clear search", size=24, icon_size=14, parent=self)
@@ -258,7 +262,7 @@ class SearchBar(QFrame):
             #ComponentSearchBar:hover {{
                 border-color: {p.border_strong};
             }}
-            #ComponentSearchBar:focus-within {{
+            #ComponentSearchBar[focused="true"] {{
                 border: 2px solid {p.accent};
             }}
         """)
@@ -287,6 +291,13 @@ class SearchBar(QFrame):
 
     def setFocus(self) -> None:
         self._input.setFocus()
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._input and event.type() in (QEvent.Type.FocusIn, QEvent.Type.FocusOut):
+            self.setProperty("focused", "true" if event.type() == QEvent.Type.FocusIn else "false")
+            self.style().unpolish(self)
+            self.style().polish(self)
+        return super().eventFilter(obj, event)
 
     def hasFocus(self) -> bool:
         return self._input.hasFocus()
