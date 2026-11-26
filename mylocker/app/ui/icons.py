@@ -1,8 +1,11 @@
 """
-icons.py — Professional vector SVG icon system for Personal Vault.
+icons.py — Unified high-DPI vector SVG icon system for Personal Vault.
 
-Provides crisp, resolution-independent vector icons replacing emojis across the UI.
-Conforms to Phase 12.C (stroke weight 2.0, consistent 24×24 viewBox, modern styling).
+One cohesive SVG stroke set:
+  - 1.5px stroke width, 24x24 viewBox, round caps and joins
+  - 20px default size
+  - Tinted automatically to the active theme's text color when omitted
+  - High-DPI crispness via devicePixelRatio scaling
 """
 
 from __future__ import annotations
@@ -13,9 +16,9 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-from mylocker.app.ui.theme import Colors
+from .design_system import Tokens
 
-# ── SVG Vector Definitions (24×24 viewBox, stroke-width=2, round caps/joins) ──
+# ── SVG Vector Definitions (24x24 viewBox, stroke-width=1.5, round caps/joins) ─
 _SVG_PATHS: Dict[str, str] = {
     "shield": """
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -102,6 +105,9 @@ _SVG_PATHS: Dict[str, str] = {
         <line x1="12" y1="5" x2="12" y2="19"/>
         <line x1="5" y1="12" x2="19" y2="12"/>
     """,
+    "minus": """
+        <line x1="5" y1="12" x2="19" y2="12"/>
+    """,
     "trash": """
         <polyline points="3 6 5 6 21 6"/>
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -153,6 +159,21 @@ _SVG_PATHS: Dict[str, str] = {
         <polyline points="1 20 1 14 7 14"/>
         <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
     """,
+    "rotate_cw": """
+        <polyline points="23 4 23 10 17 10"/>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+    """,
+    "zoom_in": """
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <line x1="11" y1="8" x2="11" y2="14"/>
+        <line x1="8" y1="11" x2="14" y2="11"/>
+    """,
+    "zoom_out": """
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <line x1="8" y1="11" x2="14" y2="11"/>
+    """,
     "eye": """
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
         <circle cx="12" cy="12" r="3"/>
@@ -172,9 +193,16 @@ _SVG_PATHS: Dict[str, str] = {
     "chevron_left": """
         <polyline points="15 18 9 12 15 6"/>
     """,
+    "chevron_down": """
+        <polyline points="6 9 12 15 18 9"/>
+    """,
     "arrow_left": """
         <line x1="19" y1="12" x2="5" y2="12"/>
         <polyline points="12 19 5 12 12 5"/>
+    """,
+    "arrow_right": """
+        <line x1="5" y1="12" x2="19" y2="12"/>
+        <polyline points="12 5 19 12 12 19"/>
     """,
     "pause": """
         <rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>
@@ -210,6 +238,11 @@ _SVG_PATHS: Dict[str, str] = {
         <circle cx="5" cy="12" r="1.5" fill="currentColor"/>
         <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
         <circle cx="19" cy="12" r="1.5" fill="currentColor"/>
+    """,
+    "more_vertical": """
+        <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+        <circle cx="12" cy="5" r="1.5" fill="currentColor"/>
+        <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
     """,
     "pip": """
         <rect x="2" y="4" width="20" height="15" rx="2"/>
@@ -248,10 +281,6 @@ _SVG_PATHS: Dict[str, str] = {
         <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
         <line x1="23" y1="9" x2="17" y2="15"/>
         <line x1="17" y1="9" x2="23" y2="15"/>
-    """,
-    "arrow_right": """
-        <line x1="5" y1="12" x2="19" y2="12"/>
-        <polyline points="12 5 19 12 12 19"/>
     """,
     "shield_lock": """
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -296,11 +325,6 @@ _SVG_PATHS: Dict[str, str] = {
         <polyline points="2 17 12 22 22 17"/>
         <polyline points="2 12 12 17 22 12"/>
     """,
-    "more_vertical": """
-        <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-        <circle cx="12" cy="5" r="1.5" fill="currentColor"/>
-        <circle cx="12" cy="19" r="1.5" fill="currentColor"/>
-    """,
     "filter": """
         <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
     """,
@@ -310,66 +334,122 @@ _SVG_PATHS: Dict[str, str] = {
         <path d="m21 8-4-4-4 4"/>
         <path d="M17 4v16"/>
     """,
+    "sidebar_collapse": """
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="9" y1="3" x2="9" y2="21"/>
+        <polyline points="15 15 12 12 15 9"/>
+    """,
+    "sidebar_expand": """
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="9" y1="3" x2="9" y2="21"/>
+        <polyline points="13 9 16 12 13 15"/>
+    """,
+    "sun": """
+        <circle cx="12" cy="12" r="4"/>
+        <line x1="12" y1="2" x2="12" y2="4"/>
+        <line x1="12" y1="20" x2="12" y2="22"/>
+        <line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/>
+        <line x1="17.66" y1="17.66" x2="19.07" y2="19.07"/>
+        <line x1="2" y1="12" x2="4" y2="12"/>
+        <line x1="20" y1="12" x2="22" y2="12"/>
+        <line x1="6.34" y1="17.66" x2="4.93" y2="19.07"/>
+        <line x1="19.07" y1="4.93" x2="17.66" y2="6.34"/>
+    """,
+    "moon": """
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    """,
+    "monitor": """
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+    """,
 }
 
+DEFAULT_ICON_SIZE = 20
+DEFAULT_STROKE_WIDTH = 1.5
 
-def _build_svg_xml(path_content: str, color: str, size: int) -> str:
-    """Wrap path content into a valid, standalone SVG document."""
+
+def _build_svg_xml(path_content: str, color: str, size: int, stroke_width: float = DEFAULT_STROKE_WIDTH) -> str:
+    """Wrap path content into a valid standalone SVG document (1.5px stroke, round caps)."""
     resolved = path_content.replace("currentColor", color)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24"
-        color="{color}" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        {resolved}
-    </svg>"""
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 24 24" '
+        f'color="{color}" fill="none" stroke="{color}" stroke-width="{stroke_width}" '
+        f'stroke-linecap="round" stroke-linejoin="round">{resolved}</svg>'
+    )
 
 
 _PIXMAP_CACHE: Dict[tuple, QPixmap] = {}
 
 
-def get_pixmap(name: str, color: Optional[str] = None, size: int = 24) -> QPixmap:
+def clear_icon_cache(*_args) -> None:
+    _PIXMAP_CACHE.clear()
+
+
+Tokens.subscribe(clear_icon_cache)
+
+
+def get_pixmap(
+    name: str,
+    color: Optional[str] = None,
+    size: int = DEFAULT_ICON_SIZE,
+    dpr: Optional[float] = None,
+) -> QPixmap:
     """Render a vector SVG icon into a high-DPI crisp QPixmap (cached)."""
     if color is None:
-        color = Colors.TEXT_SECONDARY
+        color = Tokens.colors.text
 
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
-    cache_key = (id(app), name, color, size) if app is not None else None
+    if dpr is None:
+        try:
+            dpr = max(1.0, float(app.devicePixelRatio())) if app is not None else 1.0
+        except Exception:
+            dpr = 1.0
+    dpr_key = round(dpr, 2)
+
+    cache_key = (id(app), name, color, size, dpr_key) if app is not None else None
     if cache_key is not None and cache_key in _PIXMAP_CACHE:
         return _PIXMAP_CACHE[cache_key]
 
-    raw_path = _SVG_PATHS.get(name)
-    if not raw_path:
-        raw_path = _SVG_PATHS["file"]
-
-    xml = _build_svg_xml(raw_path, color, size)
+    raw_path = _SVG_PATHS.get(name) or _SVG_PATHS["file"]
+    px_size = max(1, int(round(size * dpr_key)))
+    xml = _build_svg_xml(raw_path, color, px_size, DEFAULT_STROKE_WIDTH)
     renderer = QSvgRenderer(QByteArray(xml.encode("utf-8")))
 
-    pixmap = QPixmap(size, size)
+    pixmap = QPixmap(px_size, px_size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    renderer.render(painter, QRectF(0, 0, size, size))
+    renderer.render(painter, QRectF(0, 0, px_size, px_size))
     painter.end()
+    pixmap.setDevicePixelRatio(dpr_key)
 
     if cache_key is not None:
-        if len(_PIXMAP_CACHE) > 256:
+        if len(_PIXMAP_CACHE) > 512:
             _PIXMAP_CACHE.clear()
         _PIXMAP_CACHE[cache_key] = pixmap
 
     return pixmap
 
 
-def get_icon(name: str, color: Optional[str] = None, active_color: Optional[str] = None, size: int = 24) -> QIcon:
+def get_icon(
+    name: str,
+    color: Optional[str] = None,
+    active_color: Optional[str] = None,
+    size: int = DEFAULT_ICON_SIZE,
+) -> QIcon:
     """Create a QIcon with normal, active/hover, and disabled states."""
     if color is None:
-        color = Colors.TEXT_SECONDARY
+        color = Tokens.colors.text
     if active_color is None:
-        active_color = Colors.ACCENT
+        active_color = Tokens.colors.accent
 
     normal_pix = get_pixmap(name, color=color, size=size)
     active_pix = get_pixmap(name, color=active_color, size=size)
-    disabled_pix = get_pixmap(name, color=Colors.TEXT_MUTED, size=size)
+    disabled_pix = get_pixmap(name, color=Tokens.colors.text_muted, size=size)
 
     icon = QIcon()
     icon.addPixmap(normal_pix, QIcon.Mode.Normal)
@@ -398,8 +478,10 @@ def get_file_type_icon_name(mime_type: Optional[str], original_name: str = "") -
 
 
 __all__ = [
+    "DEFAULT_ICON_SIZE",
+    "DEFAULT_STROKE_WIDTH",
     "get_icon",
     "get_pixmap",
     "get_file_type_icon_name",
+    "clear_icon_cache",
 ]
-
