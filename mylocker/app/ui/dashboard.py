@@ -80,6 +80,7 @@ from .dashboard_theme import (
 )
 from .design_system import ThemePalette, Tokens
 from .file_grid import FileCard, VaultFileListView, format_file_size
+from .motion import crossfade_stack_page, dropdown_open, stop_all_animations
 from .sidebar import SidebarWidget
 from .toolbar import TitleAreaBar, WorkspaceToolbar
 from .widgets import (
@@ -1106,7 +1107,8 @@ class Dashboard(QMainWindow):
             elif cat in cat_to_nav_idx and cat_to_nav_idx[cat] < len(self._nav_items):
                 self._sidebar.set_active_item(self._nav_items[cat_to_nav_idx[cat]])
 
-        self._page_stack.setCurrentIndex(0)
+        if hasattr(self, "_page_stack"):
+            crossfade_stack_page(self._page_stack, 0)
         self.load_files()
 
     def _nav_to_dashboard(self) -> None:
@@ -1146,19 +1148,19 @@ class Dashboard(QMainWindow):
             if self._selection_mode or self._selected_ids:
                 self._clear_selection(exit_mode=True)
             self._ensure_intruder_ui()
-            self._page_stack.setCurrentIndex(1)
+            crossfade_stack_page(self._page_stack, 1)
             if hasattr(self._intruder_ui, "refresh_log"):
                 self._intruder_ui.refresh_log()
         elif page == 6:
             if self._selection_mode or self._selected_ids:
                 self._clear_selection(exit_mode=True)
             self._ensure_applock_ui()
-            self._page_stack.setCurrentIndex(2)
+            crossfade_stack_page(self._page_stack, 2)
         elif page == 7:
             if self._selection_mode or self._selected_ids:
                 self._clear_selection(exit_mode=True)
             self._ensure_settings_ui()
-            self._page_stack.setCurrentIndex(3)
+            crossfade_stack_page(self._page_stack, 3)
 
     # ── File operations ───────────────────────────────────────────────────────
 
@@ -1203,6 +1205,7 @@ class Dashboard(QMainWindow):
         act_folder.triggered.connect(self._add_folder_dialog)
 
         pos = self._fab_add.mapToGlobal(QPoint(0, self._fab_add.height() + 6))
+        dropdown_open(menu)
         menu.exec(pos)
 
     def _apply_loaded_index(self, index) -> None:
@@ -2346,6 +2349,7 @@ class Dashboard(QMainWindow):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        stop_all_animations(self)
         Tokens.unsubscribe(self._on_theme_changed)
         if getattr(self, "_hotkey_connected", False):
             self._hotkey_connected = False

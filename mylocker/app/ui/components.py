@@ -61,8 +61,9 @@ def _is_mocked(fn: object) -> bool:
 
 def _reduced_motion() -> bool:
     try:
-        from .login_theme import is_reduced_motion
-        return bool(is_reduced_motion())
+        from .motion import _effective_reduced_motion
+
+        return bool(_effective_reduced_motion())
     except Exception:
         return False
 
@@ -332,10 +333,13 @@ class Toggle(QAbstractButton):
             self._pos = target
             self.update()
             return
-        self._anim.stop()
-        self._anim.setStartValue(self._pos)
-        self._anim.setEndValue(target)
-        self._anim.start()
+        from .motion import animate_toggle
+
+        def _snap(val: float) -> None:
+            self._pos = val
+            self.update()
+
+        animate_toggle(self._anim, self._pos, target, _snap, duration_ms=Tokens.motion.FAST)
 
     def setChecked(self, checked: bool) -> None:
         was = self.isChecked()
@@ -951,7 +955,7 @@ class Toast(QFrame):
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self.dismiss)
+        self._timer.timeout.connect(self.dismiss_animated)
 
         Tokens.subscribe(self._on_theme)
         self.destroyed.connect(self._cleanup_sub)
@@ -986,10 +990,15 @@ class Toast(QFrame):
         if message is not None:
             self._msg_lbl.setText(message)
         self.adjustSize()
-        self.show()
-        self.raise_()
+        from .motion import toast_in
+        toast_in(self)
         if self._duration_ms > 0:
             self._timer.start(self._duration_ms)
+
+    def dismiss_animated(self) -> None:
+        self._timer.stop()
+        from .motion import toast_out
+        toast_out(self, on_finished=self.dismissed.emit)
 
     def dismiss(self) -> None:
         self._timer.stop()
@@ -1090,6 +1099,16 @@ class DialogShell(QDialog):
         surf_lay.addLayout(self.footer_layout)
 
         self._apply_theme()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        from .motion import modal_rise
+        modal_rise(self)
+
+    def done(self, result: int) -> None:
+        from .motion import stop_all_animations
+        stop_all_animations(self)
+        super().done(result)
 
     def _apply_theme(self) -> None:
         p = Tokens.colors

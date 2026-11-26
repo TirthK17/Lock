@@ -19,15 +19,12 @@ from . import icons
 from .components import IconButton
 from .dashboard_theme import SidebarBrandWidget
 from .design_system import ThemePalette, Tokens
+from .motion import _effective_reduced_motion, animate_indicator_slide
 from .widgets import SidebarItem
 
 
 def _reduced_motion() -> bool:
-    try:
-        from .login_theme import is_reduced_motion
-        return bool(is_reduced_motion())
-    except Exception:
-        return False
+    return bool(_effective_reduced_motion())
 
 
 class _SlidingIndicator(QFrame):
@@ -39,7 +36,6 @@ class _SlidingIndicator(QFrame):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._bar = QFrame(self)
         self._bar.setFixedWidth(2)
-        self._anim: Optional[QPropertyAnimation] = None
         self.hide()
         self.refresh_theme()
 
@@ -59,24 +55,14 @@ class _SlidingIndicator(QFrame):
         self._bar.setGeometry(0, 8, 2, max(8, self.height() - 16))
 
     def move_to_item(self, target: QWidget, animate: bool = True) -> None:
-        geo = target.geometry()
-        if geo.width() <= 0 or geo.height() <= 0:
+        if not animate:
+            geo = target.geometry()
+            if geo.width() > 0 and geo.height() > 0:
+                self.show()
+                self.lower()
+                self.setGeometry(geo)
             return
-        self.show()
-        self.lower()
-        if not animate or _reduced_motion() or not self.isVisible() or self.width() <= 0:
-            if self._anim is not None:
-                self._anim.stop()
-            self.setGeometry(geo)
-            return
-        if self._anim is None:
-            self._anim = QPropertyAnimation(self, b"geometry", self)
-            self._anim.setDuration(Tokens.motion.FAST)
-            self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._anim.stop()
-        self._anim.setStartValue(self.geometry())
-        self._anim.setEndValue(geo)
-        self._anim.start()
+        animate_indicator_slide(self, target, duration_ms=Tokens.motion.FAST)
 
 
 class SidebarWidget(QFrame):

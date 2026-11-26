@@ -132,32 +132,9 @@ class LoginTypography:
 
 def is_reduced_motion(settings_store=None) -> bool:
     """Respect explicit reduced-motion settings and Windows system animations setting."""
-    if settings_store is not None:
-        try:
-            if bool(settings_store.get("reduced_motion", False)):
-                return True
-        except Exception:
-            pass
-    try:
-        import ctypes
-        from ctypes import wintypes
-        if hasattr(ctypes, "windll") and hasattr(ctypes.windll, "user32"):
-            user32 = ctypes.windll.user32
-            user32.SystemParametersInfoW.argtypes = [
-                wintypes.UINT,
-                wintypes.UINT,
-                ctypes.c_void_p,
-                wintypes.UINT,
-            ]
-            user32.SystemParametersInfoW.restype = wintypes.BOOL
-            SPI_GETCLIENTAREAANIMATION = 0x1042
-            val = wintypes.BOOL()
-            if user32.SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, ctypes.byref(val), 0):
-                if not val.value:
-                    return True
-    except Exception:
-        pass
-    return False
+    from .motion import is_reduced_motion as _motion_is_reduced_motion
+
+    return _motion_is_reduced_motion(settings_store)
 
 
 # ─── Quiet Graphite Canvas Backdrop ───────────────────────────────────────────

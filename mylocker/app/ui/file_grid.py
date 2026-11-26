@@ -491,6 +491,8 @@ class FileCard(AnimatedCard):
             on_batch_delete=self.batch_delete_requested.emit,
             on_delete=self.delete_requested.emit,
         )
+        from .motion import dropdown_open
+        dropdown_open(menu)
         menu.exec(self.mapToGlobal(pos))
 
     _fmt_size = staticmethod(format_file_size)
@@ -740,6 +742,8 @@ class VaultFileListView(QListView):
             on_batch_delete=self.batch_delete_requested.emit,
             on_delete=self.delete_requested.emit,
         )
+        from .motion import dropdown_open
+        dropdown_open(menu)
         menu.exec(self.viewport().mapToGlobal(pos))
 
 

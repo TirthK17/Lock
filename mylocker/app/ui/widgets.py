@@ -107,8 +107,8 @@ class PasswordStrengthBar(QWidget):
             colour = pal.success
             text = "Very strong"
 
-        from .login_theme import is_reduced_motion
-        if is_reduced_motion():
+        from .motion import _effective_reduced_motion
+        if _effective_reduced_motion():
             self._bar.setValue(score_percent)
         else:
             self._anim.setStartValue(self._bar.value())

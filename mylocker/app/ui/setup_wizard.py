@@ -43,6 +43,7 @@ from mylocker.app.ui.components import (
     SectionHeader,
 )
 from mylocker.app.ui.design_system import ThemePalette, Tokens
+from mylocker.app.ui.motion import crossfade_stack_page
 from mylocker.app.ui.widgets import FadeLabel, PasswordStrengthBar
 
 logger = logging.getLogger(__name__)
@@ -602,7 +603,7 @@ class SetupWizard(QWidget):
     # ── Helpers & Navigation ──────────────────────────────────────────────────
 
     def _go(self, page: int) -> None:
-        self._stack.setCurrentIndex(page)
+        crossfade_stack_page(self._stack, page)
         self._current_step = min(page, 4)
         self._update_dots(self._current_step)
 
