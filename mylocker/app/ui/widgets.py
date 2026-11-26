@@ -1,17 +1,10 @@
 """
-widgets.py — Shared custom widgets with animations.
+widgets.py — Shared custom widgets built on ui/components.py and design_system.Tokens.
 
-Includes:
-  - AnimatedCard: hover glow + scale
-  - PasswordStrengthBar: live strength meter
-  - ProgressOverlay: modal progress with cancel
-  - IconButton: icon-only button with tooltip
-  - FadeLabel: label that fades in/out
-  - SearchBar: styled search input
-  - StatusBadge: coloured status pill
-  - SmoothScrollArea: frameless scrollarea
-  - GlowButton: primary CTA button with glow effect
-  - SidebarItem: animated sidebar navigation item
+Preserves every existing widget name (`GlowButton`, `AnimatedCard`,
+`PasswordStrengthBar`, `SearchBar`, `StatusBadge`, `SidebarItem`,
+`ProgressOverlay`, `FadeLabel`, `SmoothScrollArea`, `SectionHeader`)
+without gradients or drop-shadow button glow effects.
 """
 
 from __future__ import annotations
@@ -26,17 +19,11 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-)
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -44,72 +31,37 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import icons
+from .components import Badge, Card, PrimaryButton, SearchBar, SecondaryButton, SectionHeader, _apply_dialog_shadow
+from .design_system import Tokens
 from .theme import Colors
 
-# ─── GlowButton ──────────────────────────────────────────────────────────────
+# ─── GlowButton (Clean Primary CTA without GPU-heavy blur glow) ──────────────
 
-class GlowButton(QPushButton):
-    """Primary button with animated glow on hover."""
+
+class GlowButton(PrimaryButton):
+    """Primary CTA button (preserved symbol over calm PrimaryButton without blur effect)."""
 
     def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setColor(QColor(Colors.ACCENT))
-        self._shadow.setBlurRadius(0)
-        self._shadow.setOffset(0, 0)
-        self.setGraphicsEffect(self._shadow)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self._anim = QPropertyAnimation(self._shadow, b"blurRadius", self)
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def enterEvent(self, event):
-        self._anim.setStartValue(self._shadow.blurRadius())
-        self._anim.setEndValue(20)
-        self._anim.start()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._anim.setStartValue(self._shadow.blurRadius())
-        self._anim.setEndValue(0)
-        self._anim.start()
-        super().leaveEvent(event)
+        super().__init__(text, parent=parent)
 
 
 # ─── AnimatedCard ─────────────────────────────────────────────────────────────
 
-class AnimatedCard(QFrame):
+
+class AnimatedCard(Card):
     """Lightweight interactive card widget with crisp hover border/fill feedback."""
 
-    clicked = Signal()
-
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        super().__init__(interactive=True, parent=parent)
         self.setObjectName("AnimatedCard")
-        self.setStyleSheet(f"""
-            #AnimatedCard {{
-                background-color: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 12px;
-            }}
-            #AnimatedCard:hover {{
-                border: 1px solid {Colors.ACCENT};
-                background-color: {Colors.BG_CARD_HOVER};
-            }}
-        """)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
 
 
 # ─── PasswordStrengthBar ──────────────────────────────────────────────────────
 
+
 class PasswordStrengthBar(QWidget):
-    """Live password strength meter with animated colour transition."""
+    """Live password strength meter with smooth value transition."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -117,21 +69,21 @@ class PasswordStrengthBar(QWidget):
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(4)
 
-        self._bar = QProgressBar()
+        self._bar = QProgressBar(self)
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
         self._bar.setTextVisible(False)
         self._bar.setFixedHeight(4)
 
-        self._label = QLabel("Enter a password")
+        self._label = QLabel("Enter a password", self)
         self._label.setProperty("secondary", True)
-        self._label.setFont(QFont("Segoe UI", 11))
+        self._label.setFont(Tokens.type.font(Tokens.type.META, Tokens.type.WEIGHT_BODY))
 
         layout.addWidget(self._bar)
         layout.addWidget(self._label)
 
         self._anim = QPropertyAnimation(self._bar, b"value", self)
-        self._anim.setDuration(300)
+        self._anim.setDuration(Tokens.motion.SLOW)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def update_password(self, password: str) -> int:
@@ -139,20 +91,21 @@ class PasswordStrengthBar(QWidget):
         from mylocker.app.core.password_policy import validate_password
         ok, msg, score_0_4 = validate_password(password)
         score_percent = score_0_4 * 25
+        pal = Tokens.colors
 
         if not password:
             score_percent = 0
             text = "Enter a password (min 12 chars)"
-            colour = Colors.TEXT_MUTED
+            colour = pal.text_muted
         elif not ok:
             text = f"Weak: {msg}"
-            colour = Colors.DANGER
+            colour = pal.danger
         elif score_0_4 == 3:
-            colour = Colors.PRIMARY
-            text = "Good strength ✓"
+            colour = pal.accent
+            text = "Good strength"
         else:
-            colour = Colors.SUCCESS
-            text = "Very Strong ✓"
+            colour = pal.success
+            text = "Very strong"
 
         from .login_theme import is_reduced_motion
         if is_reduced_motion():
@@ -162,12 +115,9 @@ class PasswordStrengthBar(QWidget):
             self._anim.setEndValue(score_percent)
             self._anim.start()
 
-        self._bar.setStyleSheet(f"""
-            QProgressBar::chunk {{
-                background: {colour};
-                border-radius: 2px;
-            }}
-        """)
+        self._bar.setStyleSheet(
+            f"QProgressBar::chunk {{ background-color: {colour}; border-radius: 2px; }}"
+        )
         self._label.setText(text)
         return score_percent
 
@@ -186,7 +136,6 @@ class PasswordStrengthBar(QWidget):
             score += 15
         if len(password) >= 16:
             score += 15
-        # Penalty for common patterns
         if re.search(r"(.)\1{2,}", password):
             score -= 10
         if password.lower() in _COMMON_PASSWORDS:
@@ -201,127 +150,123 @@ _COMMON_PASSWORDS = {
 }
 
 
-# ─── SearchBar ───────────────────────────────────────────────────────────────
-
-class SearchBar(QLineEdit):
-    """Styled search input with icon prefix."""
-
-    def __init__(self, placeholder: str = "Search…", parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setPlaceholderText(placeholder)
-        self.setStyleSheet(f"""
-            QLineEdit {{
-                background: {Colors.BG_INPUT};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 20px;
-                padding: 7px 14px 7px 36px;
-                color: {Colors.TEXT_PRIMARY};
-                font-size: 13px;
-                min-height: 36px;
-            }}
-            QLineEdit:focus {{
-                border-color: {Colors.BORDER_FOCUS};
-            }}
-        """)
+# ─── StatusBadge ──────────────────────────────────────────────────────────────
 
 
-# ─── StatusBadge ─────────────────────────────────────────────────────────────
+class StatusBadge(Badge):
+    """Small coloured status pill preserving legacy `.set_colour(text, colour)` API."""
 
-class StatusBadge(QLabel):
-    """Small coloured pill label."""
+    def __init__(self, text: str, colour: str = Colors.SUCCESS, parent: Optional[QWidget] = None) -> None:
+        super().__init__(text, variant=self._map_colour(colour), parent=parent)
 
-    def __init__(self, text: str, colour: str = Colors.SUCCESS,
-                 parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self.set_colour(text, colour)
+    @staticmethod
+    def _map_colour(colour: str) -> str:
+        pal = Tokens.colors
+        if colour == pal.danger:
+            return "danger"
+        if colour == pal.warning:
+            return "warning"
+        if colour == pal.accent:
+            return "accent"
+        if colour == pal.success:
+            return "success"
+        return "neutral"
 
     def set_colour(self, text: str, colour: str) -> None:
-        self.setText(text)
-        self.setStyleSheet(f"""
-            QLabel {{
-                background: {colour}22;
-                color: {colour};
-                border: 1px solid {colour}44;
-                border-radius: 10px;
-                padding: 2px 10px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-        """)
+        self.set_variant(text, self._map_colour(colour))
 
 
-# ─── SidebarItem ─────────────────────────────────────────────────────────────
+# ─── SidebarItem ──────────────────────────────────────────────────────────────
+
 
 class SidebarItem(QPushButton):
-    """Animated sidebar navigation button supporting vector SVG icons."""
+    """Sidebar navigation item with 12% accent pill + 2px left accent bar when active."""
 
-    def __init__(self, icon_key_or_text: str, label: str,
-                 parent: Optional[QWidget] = None) -> None:
+    def __init__(self, icon_key_or_text: str, label: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._icon_key = icon_key_or_text
         self._label = label
         self._selected = False
+        self._compact = False
+        self.setAccessibleName(label)
+        self.setToolTip(label)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 14, 0)
+        layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(10)
 
-        self._icon_lbl = QLabel()
-        self._icon_lbl.setFixedSize(24, 24)
+        self._bar = QWidget(self)
+        self._bar.setFixedSize(2, 18)
+        layout.addWidget(self._bar)
+
+        self._icon_lbl = QLabel(self)
+        self._icon_lbl.setFixedSize(20, 20)
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self._text_lbl = QLabel(label)
-        self._text_lbl.setFont(QFont("Segoe UI", 13))
-
         layout.addWidget(self._icon_lbl)
+
+        self._text_lbl = QLabel(label, self)
+        self._text_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_LABEL))
         layout.addWidget(self._text_lbl)
         layout.addStretch()
 
-        self.setFixedHeight(44)
+        self.setFixedHeight(38)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._update_style()
 
     def set_selected(self, sel: bool) -> None:
-        self._selected = sel
+        self._selected = bool(sel)
+        self._update_style()
+
+    def set_compact(self, compact: bool) -> None:
+        self._compact = bool(compact)
+        self._text_lbl.setVisible(not compact)
+        self._bar.setVisible(not compact or self._selected)
         self._update_style()
 
     def _update_style(self) -> None:
+        p = Tokens.colors
         if self._selected:
-            bg = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4C65E8, stop:1 #637EFF)"
-            fg = "#FFFFFF"
-            border = "border: 1px solid rgba(255, 255, 255, 0.25);"
+            bg = p.accent_tint
+            fg = p.text
+            ico_col = p.accent
+            self._bar.setStyleSheet(f"background-color: {p.accent}; border-radius: 1px;")
         else:
             bg = "transparent"
-            fg = "#AAB7CC"
-            border = "border: 1px solid transparent;"
+            fg = p.text_secondary
+            ico_col = p.text_secondary
+            self._bar.setStyleSheet("background-color: transparent;")
 
         self.setStyleSheet(f"""
             QPushButton {{
-                background: {bg};
-                {border}
-                border-radius: 14px;
+                background-color: {bg};
+                border: 1px solid transparent;
+                border-radius: {Tokens.radius.CONTROL}px;
                 text-align: left;
-                padding-left: 6px;
+                padding: 0;
+                min-height: 36px;
             }}
             QPushButton:hover {{
-                background: {'qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #5C75F8, stop:1 #738EFF)' if self._selected else 'rgba(255, 255, 255, 0.05)'};
+                background-color: {p.accent_tint if self._selected else p.hover_fill};
+            }}
+            QPushButton:focus {{
+                border: 2px solid {p.accent};
             }}
         """)
-        self._text_lbl.setStyleSheet(f"color: {fg}; background: transparent; font-weight: {'600' if self._selected else '500'}; font-size: 13px;")
-
+        self._text_lbl.setStyleSheet(
+            f"color: {fg}; background: transparent; font-weight: {'600' if self._selected else '500'};"
+        )
         try:
-            from . import icons
-            pix = icons.get_pixmap(self._icon_key, size=18, color=fg)
-            self._icon_lbl.setPixmap(pix)
+            self._icon_lbl.setPixmap(icons.get_pixmap(self._icon_key, size=18, color=ico_col))
         except Exception:
             self._icon_lbl.setText(self._icon_key)
             self._icon_lbl.setStyleSheet(f"color: {fg}; background: transparent;")
 
 
-# ─── ProgressOverlay ─────────────────────────────────────────────────────────
+# ─── ProgressOverlay ──────────────────────────────────────────────────────────
+
 
 class ProgressOverlay(QDialog):
-    """Modal progress dialog with cancel button."""
+    """Modal progress dialog with cancel button built cleanly on the Dialog surface."""
 
     cancelled = Signal()
 
@@ -334,38 +279,44 @@ class ProgressOverlay(QDialog):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setModal(True)
-        self.setFixedSize(400, 180)
+        self.setFixedSize(416, 196)
 
-        outer = QWidget(self)
-        outer.setGeometry(0, 0, 400, 180)
-        outer.setStyleSheet(f"""
-            QWidget {{
-                background: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 16px;
+        outer_lay = QVBoxLayout(self)
+        outer_lay.setContentsMargins(12, 12, 12, 12)
+
+        surface = QFrame(self)
+        surface.setObjectName("ProgressOverlaySurface")
+        p = Tokens.colors
+        surface.setStyleSheet(f"""
+            #ProgressOverlaySurface {{
+                background-color: {p.card};
+                border: 1px solid {p.border_strong};
+                border-radius: {Tokens.radius.DIALOG}px;
             }}
         """)
+        _apply_dialog_shadow(surface)
+        outer_lay.addWidget(surface)
 
-        layout = QVBoxLayout(outer)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(16)
+        layout = QVBoxLayout(surface)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
 
-        self._title_lbl = QLabel(title)
-        self._title_lbl.setProperty("subtitle", True)
-        self._title_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-size: 15px; font-weight: 600; background: transparent;")
+        self._title_lbl = QLabel(title, surface)
+        self._title_lbl.setFont(Tokens.type.font(Tokens.type.SECTION, Tokens.type.WEIGHT_TITLE))
+        self._title_lbl.setStyleSheet(f"color: {p.text}; background: transparent;")
 
-        self._status_lbl = QLabel("Starting…")
-        self._status_lbl.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 12px; background: transparent;")
+        self._status_lbl = QLabel("Starting…", surface)
+        self._status_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_BODY))
+        self._status_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
 
-        self._bar = QProgressBar()
+        self._bar = QProgressBar(surface)
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
         self._bar.setTextVisible(False)
         self._bar.setFixedHeight(6)
 
-        self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setProperty("ghost", True)
-        self._cancel_btn.setFixedWidth(100)
+        self._cancel_btn = SecondaryButton("Cancel", parent=surface)
+        self._cancel_btn.setFixedWidth(104)
         self._cancel_btn.clicked.connect(self._on_cancel_clicked)
 
         btn_row = QHBoxLayout()
@@ -394,20 +345,21 @@ class ProgressOverlay(QDialog):
         self._status_lbl.setText(label)
 
 
-# ─── FadeLabel ───────────────────────────────────────────────────────────────
+# ─── FadeLabel & SmoothScrollArea ─────────────────────────────────────────────
+
 
 class FadeLabel(QLabel):
-    """Status label that displays coloured feedback instantaneously."""
+    """Status label that displays coloured feedback cleanly."""
 
     def show_text(self, text: str, colour: str = Colors.DANGER) -> None:
         self.setText(text)
-        self.setStyleSheet(f"color: {colour}; background: transparent; font-size: 12px;")
+        self.setStyleSheet(
+            f"color: {colour}; background: transparent; font-size: {Tokens.type.LABEL}px;"
+        )
 
     def auto_clear(self, ms: int = 4000) -> None:
         QTimer.singleShot(ms, self.clear)
 
-
-# ─── SmoothScrollArea ─────────────────────────────────────────────────────────
 
 class SmoothScrollArea(QScrollArea):
     """Frameless scroll area."""
@@ -419,25 +371,15 @@ class SmoothScrollArea(QScrollArea):
         self.setWidgetResizable(True)
 
 
-# ─── SectionHeader ────────────────────────────────────────────────────────────
-
-class SectionHeader(QLabel):
-    """Small all-caps section header label."""
-
-    def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(text, parent)
-        self.setStyleSheet(f"""
-            color: {Colors.TEXT_MUTED};
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
-            background: transparent;
-        """)
-
-
 __all__ = [
-    "GlowButton", "AnimatedCard", "PasswordStrengthBar", "SearchBar",
-    "StatusBadge", "SidebarItem", "ProgressOverlay", "FadeLabel",
-    "SmoothScrollArea", "SectionHeader",
+    "GlowButton",
+    "AnimatedCard",
+    "PasswordStrengthBar",
+    "SearchBar",
+    "StatusBadge",
+    "SidebarItem",
+    "ProgressOverlay",
+    "FadeLabel",
+    "SmoothScrollArea",
+    "SectionHeader",
 ]
-
