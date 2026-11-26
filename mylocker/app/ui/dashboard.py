@@ -1,25 +1,27 @@
 """
-dashboard.py — Main vault window with sidebar navigation.
+dashboard.py — Main vault window with collapsible sidebar navigation.
 
 The window is hidden / shows nothing until session.is_unlocked is True.
 Implements:
-  - Sidebar with animated item selection
-  - File grid/list view with thumbnails from encrypted index
+  - Collapsible 232px <-> 64px sidebar with sliding active indicator
+  - Custom 36px title area + workspace toolbar (search, grid/list toggle, sort, add)
+  - File grid / virtualized list view with encrypted index thumbnails
   - Drag and drop to add files
-  - Toolbar with search, add, lock
   - SetWindowDisplayAffinity for screenshot protection
-  - Status bar showing lock state
+  - Status bar showing lock state and inline task progress
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import (
     QEvent,
+    QPoint,
     Qt,
     QThread,
     QTimer,
@@ -30,15 +32,11 @@ from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
     QDropEvent,
-    QFont,
-    QIcon,
     QKeySequence,
     QPainter,
-    QPainterPath,
     QPixmap,
 )
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QFrame,
     QGraphicsOpacityEffect,
@@ -47,8 +45,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
-    QMessageBox,
-    QPushButton,
+    QProgressBar,
     QStackedWidget,
     QStatusBar,
     QVBoxLayout,
@@ -67,21 +64,25 @@ from ..core.thumbnails import (
 )
 from ..core.vault import infer_mime_type
 from . import icons
+from .components import (
+    DangerButton,
+    DialogShell,
+    EmptyState,
+    ErrorState,
+    PrimaryButton,
+    SecondaryButton,
+    _apply_dialog_shadow,
+)
 from .dashboard_theme import (
     CategoryPill,
-    DashColors,
-    DocBadgeGenerator,
-    MediaBadgeGenerator,
     MetricCard,
-    NotificationBellButton,
-    SidebarBrandWidget,
     SidebarProtectionStatus,
-    VaultSearchBar,
-    VaultUnlockedBadge,
 )
-from .theme import Colors
+from .design_system import ThemePalette, Tokens
+from .file_grid import FileCard, VaultFileListView, format_file_size
+from .sidebar import SidebarWidget
+from .toolbar import TitleAreaBar, WorkspaceToolbar
 from .widgets import (
-    AnimatedCard,
     ProgressOverlay,
     SidebarItem,
     SmoothScrollArea,
@@ -91,434 +92,7 @@ logger = logging.getLogger(__name__)
 
 WDA_EXCLUDEFROMCAPTURE = 0x11
 _GRID_BATCH_SIZE = 48
-
-
-def format_file_size(b: int) -> str:
-    """Format byte counts into human-readable strings (e.g. '12.6 GB', '4.2 MB')."""
-    val = float(b)
-    for u in ["B", "KB", "MB", "GB"]:
-        if val < 1024:
-            return f"{int(val)} {u}" if u == "B" else f"{val:.1f} {u}"
-        val /= 1024
-    return f"{val:.1f} TB"
-
-_FILECARD_STYLE = f"""
-    #FileCard {{
-        background-color: {DashColors.BG_CARD};
-        border: 1px solid {DashColors.BORDER_SUBTLE};
-        border-radius: 14px;
-    }}
-    #FileCard:hover {{
-        border: 1px solid {DashColors.BORDER_HOVER};
-        background-color: {DashColors.BG_CARD_HOVER};
-    }}
-    #FileCard[selected="true"] {{
-        border: 2px solid {DashColors.BORDER_ACTIVE};
-        background-color: rgba(59, 130, 246, 0.18);
-    }}
-    #FileThumb {{
-        background: {DashColors.BG_POPUP};
-        border-radius: 10px;
-        color: {DashColors.TEXT_MUTED};
-    }}
-    #FileName {{
-        color: {DashColors.TEXT_PRIMARY};
-        background: transparent;
-        font-weight: 600;
-        font-size: 12px;
-    }}
-    #FileName[favorite="true"] {{
-        color: {DashColors.ACCENT_AMBER};
-    }}
-    #FileSize {{
-        color: {DashColors.TEXT_MUTED};
-        background: transparent;
-        font-size: 10px;
-    }}
-    #MoreBtn {{
-        background: transparent;
-        border: none;
-        border-radius: 4px;
-    }}
-    #MoreBtn:hover {{
-        background: rgba(255, 255, 255, 0.08);
-    }}
-    #SelectBadge {{
-        background: rgba(15, 19, 32, 0.78);
-        border: 1.5px solid rgba(255, 255, 255, 0.55);
-        border-radius: 6px;
-    }}
-    #SelectBadge:hover {{
-        border: 1.5px solid {DashColors.BORDER_ACTIVE};
-        background: rgba(15, 19, 32, 0.92);
-    }}
-    #SelectBadge[selected="true"] {{
-        background: {DashColors.BORDER_ACTIVE};
-        border: 1.5px solid {DashColors.BORDER_ACTIVE};
-    }}
-"""
-
-
-class SidebarWidget(QWidget):
-    """Sidebar container with dark glass styling and subtle mountain backdrop."""
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setFixedWidth(260)
-        from pathlib import Path
-        mount_path = Path(__file__).resolve().parent / "resources" / "sidebar_mountains.png"
-        self._mount_pix = QPixmap(str(mount_path)) if mount_path.exists() else None
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor(DashColors.BG_SIDEBAR))
-        if self._mount_pix is not None and not self._mount_pix.isNull():
-            mh = self._mount_pix.height()
-            y = self.height() - mh
-            p.setOpacity(0.65)
-            p.drawPixmap(
-                0,
-                y,
-                self._mount_pix.scaled(
-                    260,
-                    mh,
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation,
-                ),
-            )
-        # Subtle right vertical separator border
-        p.setPen(QColor(125, 160, 220, 24))
-        p.drawLine(self.width() - 1, 0, self.width() - 1, self.height())
-        p.end()
-
-
-# ── File card widget ──────────────────────────────────────────────────────────
-
-class FileCard(AnimatedCard):
-    """Card showing a single vault file with thumbnail/vector icon, name, size."""
-
-    open_requested = Signal(str)    # file_id
-    restore_requested = Signal(str)
-    delete_requested = Signal(str)
-    favorite_toggled = Signal(str, bool)
-    selection_requested = Signal(str, object)   # (file_id, Qt.KeyboardModifiers)
-    select_toggle_requested = Signal(str)       # file_id
-    batch_delete_requested = Signal()
-
-    def __init__(
-        self,
-        entry,
-        parent: Optional[QWidget] = None,
-        *,
-        thumb_cache: Optional[dict] = None,
-        selected: bool = False,
-        selection_mode: bool = False,
-        selected_count_provider: Optional[Callable[[], int]] = None,
-    ) -> None:
-        super().__init__(parent)
-        self._entry = entry
-        self._thumb_cache = thumb_cache
-        self._selected = bool(selected)
-        self._selection_mode = bool(selection_mode)
-        self._selected_count_provider = selected_count_provider
-        self.setObjectName("FileCard")
-        self._build()
-        self.clicked.connect(lambda: self.open_requested.emit(entry.file_id))
-
-    def _build(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 7, 7, 7)
-        layout.setSpacing(4)
-        self.setFixedSize(182, 124)
-        self.setToolTip(f"{self._entry.original_name}\nSize: {self._fmt_size(self._entry.size_bytes)}")
-        self.setStyleSheet(_FILECARD_STYLE)
-
-        # Thumbnail container
-        self._thumb_container = QWidget(self)
-        self._thumb_container.setFixedSize(168, 70)
-        thumb_lay = QVBoxLayout(self._thumb_container)
-        thumb_lay.setContentsMargins(0, 0, 0, 0)
-
-        # Thumbnail / icon
-        self._thumb = QLabel(self._thumb_container)
-        self._thumb.setObjectName("FileThumb")
-        self._thumb.setFixedSize(168, 70)
-        self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumb.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        thumb_lay.addWidget(self._thumb)
-
-        layout.addWidget(self._thumb_container)
-
-        # Video play indicator overlay (centered over thumbnail)
-        self._video_play_badge = QLabel(self)
-        self._video_play_badge.setFixedSize(28, 28)
-        self._video_play_badge.move(77, 28)
-        self._video_play_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._video_play_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._video_play_badge.setStyleSheet(
-            "background: rgba(10, 14, 26, 0.76);"
-            "border: 1.5px solid rgba(255, 255, 255, 0.88);"
-            "border-radius: 14px;"
-        )
-        self._video_play_badge.setPixmap(icons.get_pixmap("play", DashColors.WHITE, size=13))
-        self._video_play_badge.hide()
-
-        # Video duration badge (bottom-right of thumbnail)
-        self._video_duration_badge = QLabel(self)
-        self._video_duration_badge.setFixedSize(38, 16)
-        self._video_duration_badge.move(132, 57)
-        self._video_duration_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._video_duration_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._video_duration_badge.setStyleSheet(
-            "background: rgba(0, 0, 0, 0.78);"
-            f"color: {DashColors.WHITE};"
-            "font-size: 8px;"
-            "font-weight: 600;"
-            "border-radius: 3px;"
-            "padding: 0 3px;"
-        )
-        self._video_duration_badge.setText("04:20")
-        self._video_duration_badge.hide()
-
-        self._render_thumbnail(self._entry.thumbnail_b64)
-
-        # Bottom info row (name + details on left, 3-dots on right)
-        bottom_widget = QWidget(self)
-        bottom_widget.setStyleSheet("background: transparent;")
-        bottom_lay = QHBoxLayout(bottom_widget)
-        bottom_lay.setContentsMargins(2, 1, 0, 1)
-        bottom_lay.setSpacing(4)
-
-        text_col = QVBoxLayout()
-        text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(1)
-
-        # Name
-        prefix = "★ " if self._entry.is_favorite else ""
-        name_lbl = QLabel(prefix + self._truncate(self._entry.original_name, 17 if prefix else 19), bottom_widget)
-        name_lbl.setObjectName("FileName")
-        name_lbl.setProperty("favorite", "true" if self._entry.is_favorite else "false")
-        name_lbl.setFont(QFont("Segoe UI Variable", 9, QFont.Weight.DemiBold))
-        name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        text_col.addWidget(name_lbl)
-
-        # Size + Type
-        cat = self._infer_category_name(self._entry.original_name, self._entry.mime_type)
-        size_lbl = QLabel(f"{self._fmt_size(self._entry.size_bytes)} · {cat}", bottom_widget)
-        size_lbl.setObjectName("FileSize")
-        size_lbl.setFont(QFont("Segoe UI Variable", 8))
-        size_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        text_col.addWidget(size_lbl)
-
-        bottom_lay.addLayout(text_col, 1)
-
-        # Three dots button on right
-        from PySide6.QtCore import QPoint
-        self._more_btn = QPushButton(bottom_widget)
-        self._more_btn.setObjectName("MoreBtn")
-        self._more_btn.setFixedSize(20, 20)
-        self._more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._more_btn.setIcon(icons.get_icon("more_vertical", color=DashColors.TEXT_MUTED))
-        self._more_btn.clicked.connect(lambda: self._show_context(self._more_btn.mapTo(self, QPoint(0, 20))))
-        bottom_lay.addWidget(self._more_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        layout.addWidget(bottom_widget)
-
-        # Corner selection badge (top-right inside card over thumbnail)
-        self._select_btn = QPushButton(self)
-        self._select_btn.setObjectName("SelectBadge")
-        self._select_btn.setFixedSize(20, 20)
-        self._select_btn.move(150, 11)
-        self._select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._select_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._select_btn.setToolTip("Select / Deselect file")
-        self._select_btn.clicked.connect(lambda: self.select_toggle_requested.emit(self._entry.file_id))
-        self._select_btn.raise_()
-        self._apply_selection_visuals(force=True)
-
-        # Context menu
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context)
-
-    @staticmethod
-    def _infer_category_name(filename: str, mime_type: Optional[str]) -> str:
-        mime = infer_mime_type(filename, mime_type)
-        ext = Path(filename).suffix.lower()
-        if mime.startswith("image/"):
-            return "Image"
-        if mime.startswith("video/"):
-            return "Video"
-        if mime.startswith("audio/"):
-            return "Audio"
-        if ext == ".pdf":
-            return "Document"
-        if ext in (".doc", ".docx", ".rtf", ".odt", ".txt", ".md"):
-            return "Document"
-        if ext in (".xls", ".xlsx", ".csv", ".tsv"):
-            return "Spreadsheet"
-        if ext in (".zip", ".rar", ".7z", ".tar", ".gz"):
-            return "Archive"
-        if ext in (".py", ".js", ".ts", ".html", ".css", ".cpp", ".json"):
-            return "Code"
-        return "File"
-
-    @staticmethod
-    def _clip_to_rounded(pix: QPixmap, radius: int) -> QPixmap:
-        try:
-            out = QPixmap(pix.size())
-            out.fill(Qt.GlobalColor.transparent)
-            p = QPainter(out)
-            p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            path = QPainterPath()
-            path.addRoundedRect(0, 0, pix.width(), pix.height(), radius, radius)
-            p.setClipPath(path)
-            p.drawPixmap(0, 0, pix)
-            p.end()
-            return out
-        except Exception:
-            return pix
-
-    def _render_thumbnail(self, thumb_b64: Optional[str]) -> None:
-        loaded_pixmap = False
-        mime = infer_mime_type(self._entry.original_name, self._entry.mime_type)
-        ext = Path(self._entry.original_name).suffix.lower()
-
-        if thumb_b64:
-            cache_key = (
-                self._entry.file_id,
-                self._entry.modified_time,
-                len(thumb_b64),
-            )
-            cached = self._thumb_cache.get(cache_key) if self._thumb_cache is not None else None
-            if cached is not None and not cached.isNull():
-                self._thumb.setPixmap(cached)
-                loaded_pixmap = True
-            else:
-                import base64
-                try:
-                    raw = base64.b64decode(thumb_b64)
-                    px = QPixmap()
-                    if px.loadFromData(raw):
-                        scaled = px.scaled(
-                            168,
-                            70,
-                            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                            Qt.TransformationMode.SmoothTransformation,
-                        )
-                        cw = max(0, (scaled.width() - 168) // 2)
-                        ch = max(0, (scaled.height() - 70) // 2)
-                        cropped = scaled.copy(cw, ch, 168, 70)
-                        rounded = self._clip_to_rounded(cropped, 8)
-                        if self._thumb_cache is not None:
-                            if len(self._thumb_cache) > 1000:
-                                self._thumb_cache.clear()
-                            self._thumb_cache[cache_key] = rounded
-                        self._thumb.setPixmap(rounded)
-                        loaded_pixmap = True
-                except Exception:
-                    pass
-
-        if not loaded_pixmap:
-            if mime.startswith("image/"):
-                badge_pix = MediaBadgeGenerator.get_image_placeholder(168, 70)
-            elif mime.startswith("video/"):
-                badge_pix = MediaBadgeGenerator.get_video_placeholder(168, 70)
-            else:
-                badge_pix = DocBadgeGenerator.get_badge(ext, 168, 70)
-            self._thumb.setPixmap(badge_pix)
-
-        is_video = mime.startswith("video/")
-        if hasattr(self, "_video_play_badge"):
-            self._video_play_badge.setVisible(is_video)
-            if is_video:
-                self._video_play_badge.raise_()
-        if hasattr(self, "_video_duration_badge"):
-            self._video_duration_badge.setVisible(is_video)
-            if is_video:
-                self._video_duration_badge.raise_()
-        if hasattr(self, "_select_btn"):
-            self._select_btn.raise_()
-
-    def set_thumbnail_b64(self, thumb_b64: str) -> None:
-        """Update this card's thumbnail pixmap in place once background backfill finishes."""
-        self._entry.thumbnail_b64 = thumb_b64
-        self._render_thumbnail(thumb_b64)
-
-    def _apply_selection_visuals(self, force: bool = False) -> None:
-        sel_val = "true" if self._selected else "false"
-        if force or self.property("selected") != sel_val:
-            self.setProperty("selected", sel_val)
-            self._select_btn.setProperty("selected", sel_val)
-            if self._selected:
-                self._select_btn.setIcon(icons.get_icon("check", DashColors.WHITE, DashColors.WHITE, size=14))
-            else:
-                self._select_btn.setIcon(QIcon())
-            self.style().unpolish(self)
-            self.style().polish(self)
-            self._select_btn.style().unpolish(self._select_btn)
-            self._select_btn.style().polish(self._select_btn)
-        self._select_btn.setVisible(self._selection_mode or self._selected or self.underMouse())
-
-    def set_selection_state(self, selected: bool, selection_mode: bool) -> None:
-        changed = (bool(selected) != self._selected) or (bool(selection_mode) != self._selection_mode)
-        self._selected = bool(selected)
-        self._selection_mode = bool(selection_mode)
-        if changed:
-            self._apply_selection_visuals(force=False)
-        else:
-            self._select_btn.setVisible(self._selection_mode or self._selected or self.underMouse())
-
-    def enterEvent(self, event) -> None:
-        self._select_btn.show()
-        self._select_btn.raise_()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event) -> None:
-        if not (self._selection_mode or self._selected):
-            self._select_btn.hide()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            mods = event.modifiers()
-            if self._selection_mode or bool(
-                mods & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
-            ):
-                self.selection_requested.emit(self._entry.file_id, mods)
-                event.accept()
-                return
-            self.clicked.emit()
-            event.accept()
-            return
-        QFrame.mousePressEvent(self, event)
-
-    def _show_context(self, pos) -> None:
-        from PySide6.QtWidgets import QMenu
-        menu = QMenu(self)
-        menu.addAction(icons.get_icon("eye", Colors.PRIMARY), "Open / View", lambda: self.open_requested.emit(self._entry.file_id))
-        menu.addAction(icons.get_icon("download", Colors.TEXT_PRIMARY), "Restore / Export", lambda: self.restore_requested.emit(self._entry.file_id))
-        fav_label = "Remove Favorite" if self._entry.is_favorite else "Add to Favorites"
-        fav_icon = "star_filled" if self._entry.is_favorite else "star"
-        menu.addAction(icons.get_icon(fav_icon, Colors.WARNING), fav_label, lambda: self.favorite_toggled.emit(
-            self._entry.file_id, not self._entry.is_favorite
-        ))
-        sel_label = "Deselect" if self._selected else "Select Multiple"
-        menu.addAction(icons.get_icon("check", Colors.PRIMARY), sel_label, lambda: self.select_toggle_requested.emit(self._entry.file_id))
-        menu.addSeparator()
-        sel_count = self._selected_count_provider() if self._selected_count_provider else 0
-        if sel_count > 1 or (self._selected and sel_count >= 1):
-            menu.addAction(
-                icons.get_icon("trash", Colors.DANGER),
-                f"Delete Selected ({sel_count})",
-                self.batch_delete_requested.emit,
-            )
-        menu.addAction(icons.get_icon("trash", Colors.DANGER), "Delete from Vault", lambda: self.delete_requested.emit(self._entry.file_id))
-        menu.exec(self.mapToGlobal(pos))
-
-    _fmt_size = staticmethod(format_file_size)
-
-    def _truncate(self, s: str, n: int) -> str:
-        return s if len(s) <= n else s[:n-1] + "…"
+_VIRTUAL_LIST_THRESHOLD = 500
 
 
 class _VaultLoadWorker(QThread):
@@ -871,9 +445,10 @@ class Dashboard(QMainWindow):
         self._settings_store = settings_store
         self._screenshot_blocked = bool(settings_store.get("screenshot_protection", True)) if settings_store else True
         self._current_section = "all"
+        self._view_mode = "grid"
         self._current_entries = []
         self._current_cols = 5
-        self._thumb_cache: dict[tuple, QPixmap] = {}
+        self._thumb_cache: OrderedDict[tuple, QPixmap] = OrderedDict()
         self._rendered_cards: list[FileCard] = []
         self._cards_by_id: dict[str, FileCard] = {}
         self._render_offset = 0
@@ -882,6 +457,8 @@ class Dashboard(QMainWindow):
         self._last_selected_index: Optional[int] = None
 
         self._active_overlay: Optional[ProgressOverlay] = None
+        self._status_progress: Optional[QProgressBar] = None
+        self._last_hotkey_error: str = ""
         self._cleaned_up = False
         self._files_loaded = False
         self._speed_banner_dismissed = False
@@ -936,11 +513,12 @@ class Dashboard(QMainWindow):
             self._vault_service.error_occurred.connect(self._on_service_error)
 
         self.setWindowTitle("Personal Vault — Protected")
-        self.setMinimumSize(1000, 650)
+        self.setMinimumSize(900, 600)
         self.resize(1200, 750)
         self.setAcceptDrops(True)
 
         self._build_ui()
+        Tokens.subscribe(self._on_theme_changed)
         self._setup_lock_shortcut()
         QTimer.singleShot(0, self._init_top_window_security)
 
@@ -972,6 +550,7 @@ class Dashboard(QMainWindow):
 
     def _on_hotkey_registration_failed(self, msg: str) -> None:
         """Surfaces panic hotkey registration failure visibly in the dashboard."""
+        self._last_hotkey_error = msg
         if hasattr(self, "_hotkey_lbl") and hasattr(self, "_hotkey_banner"):
             self._hotkey_lbl.setText(msg)
             self._hotkey_banner.show_animated()
@@ -979,6 +558,7 @@ class Dashboard(QMainWindow):
             self._protection_status.setToolTip("Panic hotkey inactive (shortcut in use by another app)")
         if hasattr(self, "_notif_btn") and self._notif_btn is not None:
             self._notif_btn.setToolTip(f"Security Alert: {msg}")
+            self._notif_btn.set_unread(True)
 
     def _on_pre_lock(self) -> None:
         """Invoked before session.lock() zeroes master key: cancel all running tasks."""
@@ -998,40 +578,103 @@ class Dashboard(QMainWindow):
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
-    def _build_ui(self) -> None:
-        central = QWidget()
-        central.setStyleSheet(f"background: {DashColors.BG_DARKEST};")
-        self.setCentralWidget(central)
+    def _on_theme_changed(self, _pal: ThemePalette) -> None:
+        if self._cleaned_up:
+            return
+        self._apply_dashboard_theme()
 
-        root = QHBoxLayout(central)
+    def _apply_dashboard_theme(self) -> None:
+        p = Tokens.colors
+        if hasattr(self, "_central") and self._central is not None:
+            self._central.setStyleSheet(f"background-color: {p.bg};")
+        if hasattr(self, "_content_widget") and self._content_widget is not None:
+            self._content_widget.setStyleSheet(f"background-color: {p.bg};")
+        if hasattr(self, "_files_widget") and self._files_widget is not None:
+            self._files_widget.setStyleSheet(f"background-color: {p.bg};")
+        if hasattr(self, "_status_bar") and self._status_bar is not None:
+            self._status_bar.setStyleSheet(f"""
+                QStatusBar {{
+                    background-color: {p.bg};
+                    color: {p.text_muted};
+                    font-size: {Tokens.type.META}px;
+                    border-top: 1px solid {p.border};
+                    padding: 0 12px;
+                }}
+                QStatusBar::item {{
+                    border: none;
+                }}
+            """)
+        if hasattr(self, "_speed_banner") and self._speed_banner is not None:
+            self._speed_banner.setStyleSheet(f"""
+                #SpeedBanner {{
+                    background-color: {p.accent_tint};
+                    border: 1px solid {p.accent_border};
+                    border-radius: {Tokens.radius.CARD}px;
+                    padding: 8px 12px;
+                }}
+            """)
+            self._speed_lbl.setStyleSheet(f"color: {p.text}; font-size: {Tokens.type.LABEL}px; background: transparent;")
+        if hasattr(self, "_hotkey_banner") and self._hotkey_banner is not None:
+            self._hotkey_banner.setStyleSheet(f"""
+                #HotkeyBanner {{
+                    background-color: {p.danger_tint};
+                    border: 1px solid {p.danger_border};
+                    border-radius: {Tokens.radius.CARD}px;
+                    padding: 8px 12px;
+                }}
+            """)
+            self._hotkey_lbl.setStyleSheet(f"color: {p.text}; font-size: {Tokens.type.LABEL}px; background: transparent;")
+        if hasattr(self, "_selection_bar") and self._selection_bar is not None:
+            self._selection_bar.setStyleSheet(f"""
+                #SelectionBar {{
+                    background-color: {p.accent_tint};
+                    border: 1px solid {p.accent_border};
+                    border-radius: {Tokens.radius.CARD}px;
+                    padding: 6px 12px;
+                }}
+            """)
+            self._sel_count_lbl.setStyleSheet(f"color: {p.text}; background: transparent;")
+        for card_stat in getattr(self, "_stat_cards", ()):
+            card_stat._apply_palette()
+        for pill in getattr(self, "_category_pills", ()):
+            pill._update_appearance()
+        if hasattr(self, "_protection_status") and self._protection_status is not None:
+            self._protection_status.refresh_theme()
+        for card in self._cards_by_id.values():
+            card.setStyleSheet(card._card_qss())
+
+    def _build_ui(self) -> None:
+        self._central = QWidget()
+        self.setCentralWidget(self._central)
+
+        root = QHBoxLayout(self._central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # ── Sidebar ──
-        sidebar = self._build_sidebar()
-        root.addWidget(sidebar)
-
-        # ── Divider ──
-        div = QFrame()
-        div.setFixedWidth(1)
-        div.setStyleSheet(f"background: {DashColors.BORDER_SUBTLE};")
-        root.addWidget(div)
+        # ── Sidebar rail (232px <-> 64px collapsible) ──
+        self._sidebar = self._build_sidebar()
+        root.addWidget(self._sidebar)
 
         # ── Content area ──
-        content = QWidget()
-        content.setStyleSheet(f"background: {DashColors.BG_CONTENT};")
-        content_layout = QVBoxLayout(content)
+        self._content_widget = QWidget()
+        content_layout = QVBoxLayout(self._content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        # Topbar
-        topbar = self._build_topbar()
-        content_layout.addWidget(topbar)
+        # 36px custom-feeling title area
+        self._title_bar = TitleAreaBar(self._content_widget)
+        self._title_bar.screenshot_toggled.connect(self._toggle_screenshot_protection)
+        self._title_bar.notifications_clicked.connect(self._show_notifications_menu)
+        self._page_title = self._title_bar.page_title_lbl
+        self._ss_btn = self._title_bar.ss_btn
+        self._notif_btn = self._title_bar.notif_btn
+        self._vault_unlocked_badge = self._title_bar.unlocked_badge
+        content_layout.addWidget(self._title_bar)
 
-        # Page stack (indices 1..3 start as empty placeholders and load lazily on first visit)
+        # Page stack (indices 1..3 load lazily on first visit)
         self._page_stack = QStackedWidget()
         self._files_widget = self._build_files_page()
-        self._page_stack.addWidget(self._files_widget)   # 0 — Files (All, Photos, Videos, Docs, Favs)
+        self._page_stack.addWidget(self._files_widget)   # 0 — Files
 
         self._intruder_slot = QWidget()
         self._applock_slot = QWidget()
@@ -1040,21 +683,22 @@ class Dashboard(QMainWindow):
         self._page_stack.addWidget(self._applock_slot)    # 2 — App Lock (lazy)
         self._page_stack.addWidget(self._settings_slot)   # 3 — Settings (lazy)
 
-        content_layout.addWidget(self._page_stack)
-        root.addWidget(content, 1)
+        content_layout.addWidget(self._page_stack, 1)
+        root.addWidget(self._content_widget, 1)
 
-        # Status bar
+        # ── Status bar with vault state & inline task progress ──
         self._status_bar = QStatusBar()
-        self._status_bar.setStyleSheet(f"""
-            QStatusBar {{
-                background: {DashColors.BG_DARKEST};
-                color: {DashColors.TEXT_MUTED};
-                font-size: 11px;
-                border-top: 1px solid {DashColors.BORDER_SUBTLE};
-                padding: 0 12px;
-            }}
-        """)
+        self._status_progress = QProgressBar(self._status_bar)
+        self._status_progress.setFixedSize(120, 6)
+        self._status_progress.setTextVisible(False)
+        self._status_progress.hide()
+        self._status_bar.addPermanentWidget(self._status_progress)
+
+        self._protection_status = SidebarProtectionStatus(self._status_bar)
+        self._status_bar.addPermanentWidget(self._protection_status)
         self.setStatusBar(self._status_bar)
+
+        self._apply_dashboard_theme()
         self._update_status()
 
     def _replace_stack_page(self, index: int, widget: QWidget) -> None:
@@ -1071,7 +715,7 @@ class Dashboard(QMainWindow):
             from .intruder_log import IntruderLogUI
             self._intruder_ui = IntruderLogUI(self._lockout)
         else:
-            self._intruder_ui = self._build_placeholder("Intruder Log", "📸")
+            self._intruder_ui = self._build_placeholder("Intruder Log", "shield_alert")
         self._replace_stack_page(1, self._intruder_ui)
 
     def _ensure_applock_ui(self) -> None:
@@ -1094,272 +738,83 @@ class Dashboard(QMainWindow):
             self._settings_ui.credentials_changed.connect(self.credentials_changed.emit)
             self._settings_ui.settings_updated.connect(self.settings_updated.emit)
         else:
-            self._settings_ui = self._build_placeholder("Settings", "⚙️")
+            self._settings_ui = self._build_placeholder("Settings", "settings")
         self._replace_stack_page(3, self._settings_ui)
 
-    def _build_sidebar(self) -> QWidget:
-        sb = SidebarWidget()
-        sb.setFixedWidth(260)
+    def _build_sidebar(self) -> SidebarWidget:
+        sb = SidebarWidget(is_decoy=self._session.is_decoy, parent=self)
+        self._brand_widget = sb.brand_widget
+        self._nav_items: list[SidebarItem] = sb.nav_items
+        self._nav_bin: SidebarItem = sb.nav_bin
 
-        layout = QVBoxLayout(sb)
-        layout.setContentsMargins(14, 20, 14, 16)
-        layout.setSpacing(4)
-
-        # Brand widget (Shield emblem + Personal Vault + Private • Secure • Yours)
-        self._brand_widget = SidebarBrandWidget()
-        layout.addWidget(self._brand_widget)
-        layout.addSpacing(14)
-
-        # Active top Dashboard pill
-        self._nav_dashboard = SidebarItem("home", "Dashboard")
-        self._nav_dashboard.clicked.connect(self._nav_to_dashboard)
-        layout.addWidget(self._nav_dashboard)
-        layout.addSpacing(6)
-
-        # Navigation items (0..4 for Vault categories)
-        item_all = SidebarItem("folder", "All Files")
-        item_photos = SidebarItem("image", "Photos")
-        item_videos = SidebarItem("video", "Videos")
-        item_docs = SidebarItem("file_text", "Documents")
-        item_favs = SidebarItem("star", "Favorites")
-        self._nav_bin = SidebarItem("trash", "Bin")
-
-        item_all.clicked.connect(lambda: self._nav_to(0, item_all))
-        item_photos.clicked.connect(lambda: self._nav_to(1, item_photos))
-        item_videos.clicked.connect(lambda: self._nav_to(2, item_videos))
-        item_docs.clicked.connect(lambda: self._nav_to(3, item_docs))
-        item_favs.clicked.connect(lambda: self._nav_to(4, item_favs))
-        self._nav_bin.clicked.connect(self._nav_to_bin)
-
-        layout.addWidget(item_all)
-        layout.addWidget(item_photos)
-        layout.addWidget(item_videos)
-        layout.addWidget(item_docs)
-        layout.addWidget(item_favs)
-        layout.addWidget(self._nav_bin)
-
-        # Subtle divider line
-        layout.addSpacing(8)
-        nav_div = QFrame()
-        nav_div.setFixedHeight(1)
-        nav_div.setStyleSheet(f"background: {DashColors.BORDER_SUBTLE};")
-        layout.addWidget(nav_div)
-        layout.addSpacing(8)
-
-        # Security & System items (5..7)
-        item_backup = SidebarItem("layers", "Backup & Restore")
-        item_security = SidebarItem("shield_check", "Security")
-        item_settings = SidebarItem("settings", "Settings")
-
-        item_backup.clicked.connect(lambda: self._nav_to(5, item_backup))
-        item_security.clicked.connect(lambda: self._nav_to(6, item_security))
-        item_settings.clicked.connect(lambda: self._nav_to(7, item_settings))
-
-        layout.addWidget(item_backup)
-        layout.addWidget(item_security)
-        layout.addWidget(item_settings)
-
-        if self._session.is_decoy:
-            item_backup.hide()
-            item_security.hide()
-            item_settings.hide()
-            nav_div.hide()
-
-        self._nav_items: list[SidebarItem] = [
-            item_all, item_photos, item_videos, item_docs, item_favs,
-            item_backup, item_security, item_settings,
-        ]
-
-        self._nav_dashboard.set_selected(True)
-        item_all.set_selected(True)
-
-        layout.addStretch()
-
-        # Minimal subtle lock button
-        lock_btn = QPushButton(" Lock Vault")
-        lock_btn.setIcon(icons.get_icon("lock", color=DashColors.TEXT_MUTED, active_color=DashColors.ACCENT_RED))
-        lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        lock_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {DashColors.TEXT_MUTED};
-                border: 1px solid rgba(125, 160, 220, 0.12);
-                border-radius: 8px;
-                padding: 6px 12px;
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 11px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background: rgba(255, 111, 134, 0.15);
-                color: {DashColors.ACCENT_RED};
-                border-color: rgba(255, 111, 134, 0.35);
-            }}
-        """)
-        lock_btn.clicked.connect(self.lock_requested.emit)
-        layout.addWidget(lock_btn)
-        layout.addSpacing(8)
-
+        sb.nav_clicked.connect(self._nav_to)
+        sb.bin_clicked.connect(self._nav_to_bin)
+        sb.lock_clicked.connect(self.lock_requested.emit)
+        sb.collapsed_changed.connect(
+            lambda _collapsed: QTimer.singleShot(Tokens.motion.NORMAL + 20, self._on_debounced_resize)
+        )
         return sb
 
-    def _build_topbar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("DashboardTopBar")
-        bar.setFixedHeight(64)
-        bar.setStyleSheet(f"""
-            #DashboardTopBar {{
-                background: {DashColors.BG_CONTENT};
-                border-bottom: 1px solid rgba(125, 160, 220, 0.08);
-            }}
-        """)
+    def _build_files_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(28, 0, 28, 0)
-        layout.setSpacing(12)
+        # ── 1. Workspace Toolbar (search, grid/list toggle, sort, select, + Add) ──
+        self._toolbar = WorkspaceToolbar(page)
+        self._search = self._toolbar.search_bar
+        self._btn_grid_mode = self._toolbar.btn_grid_mode
+        self._btn_list_mode = self._toolbar.btn_list_mode
+        self._sort_combo = self._toolbar.sort_combo
+        self._select_btn = self._toolbar.select_btn
+        self._fab_add = self._toolbar.add_btn
 
-        # Page title kept for tests and accessibility
-        self._page_title = QLabel("All Files")
-        self._page_title.setFont(QFont("Segoe UI Variable", 15, QFont.Weight.Bold))
-        self._page_title.setStyleSheet(f"color: {DashColors.TEXT_PRIMARY}; background: transparent;")
-        layout.addWidget(self._page_title)
-        self._page_title.hide()  # Minimal topbar matching reference mockup
-        layout.addStretch()
-
-        # Search bar matching reference (420px width, Ctrl + F badge)
-        self._search = VaultSearchBar("Search in your vault…")
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(250)
         self._search_timer.timeout.connect(self._do_search)
-        self._search.textChanged.connect(lambda: self._search_timer.start(250))
-        layout.addWidget(self._search)
+        self._toolbar.search_changed.connect(lambda _txt: self._search_timer.start(250))
+        self._toolbar.view_mode_changed.connect(self._set_view_mode)
+        self._toolbar.sort_changed.connect(self._on_sort_changed)
+        self._toolbar.selection_toggled.connect(self._toggle_selection_mode)
+        self._toolbar.add_clicked.connect(self._show_fab_menu)
+        layout.addWidget(self._toolbar)
 
-        # Notification bell with red unread dot
-        self._notif_btn = NotificationBellButton()
-        layout.addWidget(self._notif_btn)
-
-        # Multi-select toggle button (preserves test_batch_performance_and_multiselect.py)
-        self._select_btn = QPushButton(" Select")
-        self._select_btn.setProperty("ghost", True)
-        self._select_btn.setCheckable(True)
-        self._select_btn.setFixedHeight(36)
-        self._select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._select_btn.setIcon(icons.get_icon("check", color=DashColors.TEXT_SECONDARY))
-        self._select_btn.setToolTip("Select multiple files to delete (or hold Ctrl/Shift while clicking)")
-        self._select_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(24, 37, 62, 0.65);
-                color: {DashColors.TEXT_SECONDARY};
-                border: 1px solid {DashColors.BORDER_SUBTLE};
-                border-radius: 8px;
-                padding: 0 12px;
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QPushButton:checked {{
-                background: rgba(91, 140, 255, 0.22);
-                color: {DashColors.ACCENT_BLUE};
-                border: 1px solid {DashColors.ACCENT_BLUE};
-            }}
-            QPushButton:hover {{
-                border-color: rgba(125, 160, 220, 0.35);
-            }}
-        """)
-        self._select_btn.clicked.connect(self._toggle_selection_mode)
-        layout.addWidget(self._select_btn)
-
-        # Screenshot toggle
-        self._ss_btn = QPushButton(" Protected")
-        self._ss_btn.setProperty("ghost", True)
-        self._ss_btn.setFixedHeight(36)
-        self._ss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._ss_btn.setIcon(icons.get_icon("shield_check", color=DashColors.ACCENT_GREEN))
-        self._ss_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(24, 37, 62, 0.65);
-                color: {DashColors.ACCENT_GREEN};
-                border: 1px solid rgba(57, 214, 162, 0.25);
-                border-radius: 8px;
-                padding: 0 12px;
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QPushButton:hover {{
-                background: rgba(24, 37, 62, 0.85);
-                border-color: {DashColors.ACCENT_GREEN};
-            }}
-        """)
-        self._ss_btn.clicked.connect(self._toggle_screenshot_protection)
-        layout.addWidget(self._ss_btn)
-
-        return bar
-
-    def _build_files_page(self) -> QWidget:
-        page = QWidget()
-        page.setStyleSheet(f"background: {DashColors.BG_CONTENT};")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(28, 20, 28, 20)
-        layout.setSpacing(16)
-
-        # ── 1. Welcome Section & Vault Status ──
-        welcome_row = QHBoxLayout()
-        welcome_row.setContentsMargins(0, 0, 0, 0)
-        welcome_row.setSpacing(16)
-
-        welcome_text_col = QVBoxLayout()
-        welcome_text_col.setContentsMargins(0, 0, 0, 0)
-        welcome_text_col.setSpacing(4)
-
-        welcome_sub = QLabel("Welcome back,")
-        welcome_sub.setFont(QFont("Segoe UI Variable", 12, QFont.Weight.Medium))
-        welcome_sub.setStyleSheet(f"color: {DashColors.TEXT_SECONDARY}; background: transparent;")
-        welcome_text_col.addWidget(welcome_sub)
-
-        welcome_title = QLabel("Your Personal Vault")
-        welcome_title.setFont(QFont("Segoe UI Variable", 26, QFont.Weight.Bold))
-        welcome_title.setStyleSheet(f"color: {DashColors.TEXT_PRIMARY}; background: transparent; letter-spacing: -0.5px;")
-        welcome_text_col.addWidget(welcome_title)
-
-        welcome_desc = QLabel("Keep your private files safe, encrypted, and always under your control.")
-        welcome_desc.setFont(QFont("Segoe UI Variable", 11, QFont.Weight.Normal))
-        welcome_desc.setStyleSheet(f"color: {DashColors.TEXT_MUTED}; background: transparent;")
-        welcome_text_col.addWidget(welcome_desc)
-
-        welcome_row.addLayout(welcome_text_col)
-        welcome_row.addStretch()
-
-        self._vault_unlocked_badge = VaultUnlockedBadge()
-        welcome_row.addWidget(self._vault_unlocked_badge, 0, Qt.AlignmentFlag.AlignVCenter)
-        layout.addLayout(welcome_row)
-
-        # ── 2. Statistics Row (4 Cards) ──
+        # ── 2. Compact Summary Metrics Strip ──
         stats_row = QHBoxLayout()
         stats_row.setContentsMargins(0, 0, 0, 0)
-        stats_row.setSpacing(14)
+        stats_row.setSpacing(12)
 
-        self._stat_total = MetricCard("folder", "0", "Total Files", DashColors.ACCENT_BLUE)
-        self._stat_storage = MetricCard("database", "0 B", "Stored Data", DashColors.ACCENT_PURPLE)
-        self._stat_favs = MetricCard("star", "0", "Favorites", DashColors.ACCENT_GOLD)
-        self._stat_protection = MetricCard("shield_check", "100%", "Vault Protected", DashColors.ACCENT_CYAN)
-
-        stats_row.addWidget(self._stat_total, 1)
-        stats_row.addWidget(self._stat_storage, 1)
-        stats_row.addWidget(self._stat_favs, 1)
-        stats_row.addWidget(self._stat_protection, 1)
+        p = Tokens.colors
+        self._stat_total = MetricCard("folder", "0", "Total Files", p.accent, parent=page)
+        self._stat_storage = MetricCard("database", "0 B", "Stored Data", p.accent, parent=page)
+        self._stat_favs = MetricCard("star", "0", "Favorites", p.warning, parent=page)
+        self._stat_protection = MetricCard("shield_check", "100%", "Vault Protected", p.success, parent=page)
+        self._stat_cards = (self._stat_total, self._stat_storage, self._stat_favs, self._stat_protection)
+        for mc in self._stat_cards:
+            mc.setMinimumWidth(116)
+            mc.setMinimumHeight(68)
+            stats_row.addWidget(mc, 1)
         layout.addLayout(stats_row)
 
-        # ── 3. Category Filter Tabs & View Mode Toggles ──
+        # ── 3. Quick Category Filter Strip + Section Heading ──
         tabs_row = QHBoxLayout()
         tabs_row.setContentsMargins(0, 0, 0, 0)
-        tabs_row.setSpacing(10)
+        tabs_row.setSpacing(8)
 
-        self._pill_all = CategoryPill("grid", "All Files", active=True)
-        self._pill_photos = CategoryPill("image", "Photos", active=False)
-        self._pill_videos = CategoryPill("video", "Videos", active=False)
-        self._pill_docs = CategoryPill("file_text", "Documents", active=False)
-        self._pill_favs = CategoryPill("star", "Favorites", active=False)
+        self._pill_all = CategoryPill("grid", "All Files", active=True, parent=page)
+        self._pill_photos = CategoryPill("image", "Photos", active=False, parent=page)
+        self._pill_videos = CategoryPill("video", "Videos", active=False, parent=page)
+        self._pill_docs = CategoryPill("file_text", "Documents", active=False, parent=page)
+        self._pill_favs = CategoryPill("star", "Favorites", active=False, parent=page)
+        self._category_pills = (
+            self._pill_all,
+            self._pill_photos,
+            self._pill_videos,
+            self._pill_docs,
+            self._pill_favs,
+        )
 
         self._pill_all.clicked.connect(lambda: self._select_category_pill("all"))
         self._pill_photos.clicked.connect(lambda: self._select_category_pill("photos"))
@@ -1367,134 +822,28 @@ class Dashboard(QMainWindow):
         self._pill_docs.clicked.connect(lambda: self._select_category_pill("documents"))
         self._pill_favs.clicked.connect(lambda: self._select_category_pill("favorites"))
 
-        tabs_row.addWidget(self._pill_all)
-        tabs_row.addWidget(self._pill_photos)
-        tabs_row.addWidget(self._pill_videos)
-        tabs_row.addWidget(self._pill_docs)
-        tabs_row.addWidget(self._pill_favs)
-        tabs_row.addStretch()
+        for pill in self._category_pills:
+            tabs_row.addWidget(pill)
+        tabs_row.addStretch(1)
 
-        # View Mode Toggle (Grid vs List)
-        self._btn_grid_mode = QPushButton()
-        self._btn_grid_mode.setFixedSize(36, 36)
-        self._btn_grid_mode.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_grid_mode.setIcon(icons.get_icon("grid", color=DashColors.WHITE))
-        self._btn_grid_mode.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.08);
-                border: 1px solid rgba(125, 160, 220, 0.25);
-                border-radius: 10px;
-            }
-        """)
-
-        self._btn_list_mode = QPushButton()
-        self._btn_list_mode.setFixedSize(36, 36)
-        self._btn_list_mode.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_list_mode.setIcon(icons.get_icon("list", color=DashColors.TEXT_MUTED))
-        self._btn_list_mode.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 10px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.06);
-            }
-        """)
-
-        tabs_row.addWidget(self._btn_grid_mode)
-        tabs_row.addWidget(self._btn_list_mode)
+        self._section_title_lbl = QLabel("All Files", page)
+        self._section_title_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
+        self._section_title_lbl.setProperty("role", "muted")
+        self._section_title_lbl.hide()
+        self._section_sub_lbl = QLabel("", page)
+        self._section_sub_lbl.hide()
         layout.addLayout(tabs_row)
 
-        # ── 4. Section Title & Sort/Filter Controls ──
-        sec_header_row = QHBoxLayout()
-        sec_header_row.setContentsMargins(0, 4, 0, 0)
-        sec_header_row.setSpacing(12)
-
-        sec_text_col = QVBoxLayout()
-        sec_text_col.setContentsMargins(0, 0, 0, 0)
-        sec_text_col.setSpacing(2)
-
-        self._section_title_lbl = QLabel("Recent Files")
-        self._section_title_lbl.setFont(QFont("Segoe UI Variable", 14, QFont.Weight.Bold))
-        self._section_title_lbl.setStyleSheet(f"color: {DashColors.TEXT_PRIMARY}; background: transparent;")
-        sec_text_col.addWidget(self._section_title_lbl)
-
-        self._section_sub_lbl = QLabel("Your recently added or accessed files.")
-        self._section_sub_lbl.setFont(QFont("Segoe UI Variable", 10))
-        self._section_sub_lbl.setStyleSheet(f"color: {DashColors.TEXT_MUTED}; background: transparent;")
-        sec_text_col.addWidget(self._section_sub_lbl)
-
-        sec_header_row.addLayout(sec_text_col)
-        sec_header_row.addStretch()
-
-        # Sort Dropdown
-        self._sort_combo = QComboBox()
-        self._sort_combo.addItems(["Sort by: Recent", "Sort by: Name", "Sort by: Size", "Sort by: Type"])
-        self._sort_combo.setFixedHeight(34)
-        self._sort_combo.setStyleSheet(f"""
-            QComboBox {{
-                background: rgba(24, 37, 62, 0.65);
-                color: {DashColors.TEXT_SECONDARY};
-                border: 1px solid {DashColors.BORDER_SUBTLE};
-                border-radius: 8px;
-                padding: 4px 12px;
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 12px;
-                font-weight: 500;
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            QComboBox QAbstractItemView {{
-                background: {DashColors.BG_INPUT};
-                color: {DashColors.TEXT_PRIMARY};
-                border: 1px solid rgba(125, 160, 220, 0.25);
-                selection-background-color: rgba(91, 140, 255, 0.35);
-                border-radius: 8px;
-                padding: 4px;
-            }}
-        """)
-        self._sort_combo.currentIndexChanged.connect(self._on_sort_changed)
-        sec_header_row.addWidget(self._sort_combo)
-
-        # Filter Button
-        self._filter_btn = QPushButton()
-        self._filter_btn.setFixedSize(34, 34)
-        self._filter_btn.setIcon(icons.get_icon("filter", color=DashColors.TEXT_SECONDARY))
-        self._filter_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(24, 37, 62, 0.65);
-                border: 1px solid {DashColors.BORDER_SUBTLE};
-                border-radius: 8px;
-            }}
-            QPushButton:hover {{
-                background: rgba(36, 54, 90, 0.85);
-                border-color: {DashColors.ACCENT_BLUE};
-            }}
-        """)
-        sec_header_row.addWidget(self._filter_btn)
-        layout.addLayout(sec_header_row)
-
-        # Optional unlock speed optimization banner (shown when KDF is slow, auto-dismisses after 5s @ 90fps)
+        # ── 4. Optional Banners & Multi-Select Bar ──
         self._speed_banner = _AutoDismissBanner(timeout_ms=5000)
         self._speed_banner.setObjectName("SpeedBanner")
         self._speed_banner.auto_dismissed.connect(lambda: setattr(self, "_speed_banner_dismissed", True))
-        self._speed_banner.setStyleSheet("""
-            #SpeedBanner {
-                background: rgba(139, 156, 255, 0.10);
-                border: 1px solid rgba(139, 156, 255, 0.35);
-                border-radius: 12px;
-                padding: 10px 14px;
-            }
-        """)
         sb_lay = QHBoxLayout(self._speed_banner)
         sb_lay.setContentsMargins(6, 2, 6, 2)
         sb_lay.setSpacing(12)
 
         sb_icon = QLabel()
-        sb_icon.setPixmap(icons.get_pixmap("shield_check", size=20, color=Colors.PRIMARY))
+        sb_icon.setPixmap(icons.get_pixmap("shield_check", size=18, color=p.accent))
         sb_icon.setStyleSheet("background: transparent;")
         sb_lay.addWidget(sb_icon)
 
@@ -1502,38 +851,16 @@ class Dashboard(QMainWindow):
             "Slow unlock detected — optimize key derivation to ~0.25s with full OWASP-safe security."
         )
         self._speed_lbl.setWordWrap(True)
-        self._speed_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-size: 12px; background: transparent;")
         sb_lay.addWidget(self._speed_lbl, 1)
 
-        # Never nest GlowButton (QGraphicsDropShadowEffect) inside a parent QGraphicsOpacityEffect,
-        # which can clip/blank the banner on hover in Qt6 software effect composition.
-        self._optimize_btn = QPushButton("Optimize Speed (~0.25s)")
-        self._optimize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Avoid QGraphicsDropShadowEffect inside animated opacity banner
+        self._optimize_btn = PrimaryButton("Optimize Speed (~0.25s)", parent=self._speed_banner)
         self._optimize_btn.setFixedHeight(32)
-        self._optimize_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {Colors.ACCENT};
-                color: {DashColors.WHITE};
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                border-radius: 8px;
-                padding: 0 14px;
-                font-size: 12px;
-                font-weight: 600;
-                min-height: 30px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.ACCENT_HOVER};
-            }}
-            QPushButton:pressed {{
-                background: {Colors.ACCENT_DARK};
-            }}
-        """)
         self._optimize_btn.clicked.connect(self._open_optimize_speed_dialog)
         sb_lay.addWidget(self._optimize_btn)
 
-        dismiss_btn = QPushButton("Dismiss")
-        dismiss_btn.setProperty("ghost", True)
-        dismiss_btn.setFixedHeight(30)
+        dismiss_btn = SecondaryButton("Dismiss", parent=self._speed_banner)
+        dismiss_btn.setFixedHeight(32)
         dismiss_btn.clicked.connect(lambda: self._dismiss_speed_banner(animate=True))
         sb_lay.addWidget(dismiss_btn)
 
@@ -1541,34 +868,23 @@ class Dashboard(QMainWindow):
         self._speed_banner.hide()
         layout.addWidget(self._speed_banner)
 
-        # Panic hotkey registration failure banner (shown if hotkey is already registered by another process)
         self._hotkey_banner = _AutoDismissBanner(timeout_ms=7000)
         self._hotkey_banner.setObjectName("HotkeyBanner")
-        self._hotkey_banner.setStyleSheet("""
-            #HotkeyBanner {
-                background: rgba(239, 68, 68, 0.12);
-                border: 1px solid rgba(239, 68, 68, 0.35);
-                border-radius: 12px;
-                padding: 10px 14px;
-            }
-        """)
         hb_lay = QHBoxLayout(self._hotkey_banner)
         hb_lay.setContentsMargins(6, 2, 6, 2)
         hb_lay.setSpacing(12)
 
         hb_icon = QLabel()
-        hb_icon.setPixmap(icons.get_pixmap("alert_triangle", size=20, color=DashColors.ACCENT_RED))
+        hb_icon.setPixmap(icons.get_pixmap("alert_triangle", size=18, color=p.danger))
         hb_icon.setStyleSheet("background: transparent;")
         hb_lay.addWidget(hb_icon)
 
         self._hotkey_lbl = QLabel("Panic hotkey (Ctrl+Alt+Shift+L) could not be registered.")
         self._hotkey_lbl.setWordWrap(True)
-        self._hotkey_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-size: 12px; background: transparent;")
         hb_lay.addWidget(self._hotkey_lbl, 1)
 
-        hb_dismiss_btn = QPushButton("Dismiss")
-        hb_dismiss_btn.setProperty("ghost", True)
-        hb_dismiss_btn.setFixedHeight(30)
+        hb_dismiss_btn = SecondaryButton("Dismiss", parent=self._hotkey_banner)
+        hb_dismiss_btn.setFixedHeight(32)
         hb_dismiss_btn.clicked.connect(self._hotkey_banner.dismiss_animated)
         hb_lay.addWidget(hb_dismiss_btn)
 
@@ -1576,105 +892,61 @@ class Dashboard(QMainWindow):
         self._hotkey_banner.hide()
         layout.addWidget(self._hotkey_banner)
 
-        # Contextual Multi-Select Action Bar (shown during selection mode / active selection)
-        self._selection_bar = QFrame()
+        self._selection_bar = QFrame(page)
         self._selection_bar.setObjectName("SelectionBar")
-        self._selection_bar.setStyleSheet("""
-            #SelectionBar {
-                background: rgba(139, 156, 255, 0.12);
-                border: 1px solid rgba(139, 156, 255, 0.35);
-                border-radius: 12px;
-                padding: 8px 14px;
-            }
-        """)
         sel_lay = QHBoxLayout(self._selection_bar)
         sel_lay.setContentsMargins(6, 2, 6, 2)
-        sel_lay.setSpacing(10)
+        sel_lay.setSpacing(8)
 
-        self._sel_count_lbl = QLabel("0 selected")
-        self._sel_count_lbl.setFont(QFont("Segoe UI Variable", 12, QFont.Weight.DemiBold))
-        self._sel_count_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
+        self._sel_count_lbl = QLabel("0 selected", self._selection_bar)
+        self._sel_count_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_TITLE))
         sel_lay.addWidget(self._sel_count_lbl)
         sel_lay.addStretch()
 
-        self._sel_all_btn = QPushButton("Select All")
-        self._sel_all_btn.setProperty("ghost", True)
-        self._sel_all_btn.setFixedHeight(32)
+        self._sel_all_btn = SecondaryButton("Select All", parent=self._selection_bar)
+        self._sel_all_btn.setFixedHeight(30)
         self._sel_all_btn.clicked.connect(self._select_all_visible)
         sel_lay.addWidget(self._sel_all_btn)
 
-        self._sel_clear_btn = QPushButton("Clear")
-        self._sel_clear_btn.setProperty("ghost", True)
-        self._sel_clear_btn.setFixedHeight(32)
+        self._sel_clear_btn = SecondaryButton("Clear", parent=self._selection_bar)
+        self._sel_clear_btn.setFixedHeight(30)
         self._sel_clear_btn.clicked.connect(lambda: self._clear_selection(exit_mode=False))
         sel_lay.addWidget(self._sel_clear_btn)
 
-        self._sel_delete_btn = QPushButton(" Delete Selected")
-        self._sel_delete_btn.setIcon(icons.get_icon("trash", color=Colors.DANGER, active_color=DashColors.WHITE))
-        self._sel_delete_btn.setFixedHeight(32)
-        self._sel_delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._sel_delete_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(255, 113, 131, 0.18);
-                color: {Colors.DANGER};
-                border: 1px solid rgba(255, 113, 131, 0.45);
-                border-radius: 8px;
-                padding: 0 14px;
-                font-size: 12px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background: rgba(255, 113, 131, 0.30);
-            }}
-            QPushButton:disabled {{
-                background: rgba(255, 255, 255, 0.04);
-                color: {Colors.TEXT_MUTED};
-                border: 1px solid {Colors.BORDER};
-            }}
-        """)
+        self._sel_delete_btn = DangerButton("Delete Selected", icon_name="trash", parent=self._selection_bar)
+        self._sel_delete_btn.setFixedHeight(30)
         self._sel_delete_btn.setEnabled(False)
         self._sel_delete_btn.clicked.connect(self._delete_selected_files)
         sel_lay.addWidget(self._sel_delete_btn)
 
-        self._sel_done_btn = QPushButton("Done")
-        self._sel_done_btn.setProperty("ghost", True)
-        self._sel_done_btn.setFixedHeight(32)
+        self._sel_done_btn = SecondaryButton("Done", parent=self._selection_bar)
+        self._sel_done_btn.setFixedHeight(30)
         self._sel_done_btn.clicked.connect(lambda: self._toggle_selection_mode(False))
         sel_lay.addWidget(self._sel_done_btn)
 
         self._selection_bar.hide()
         layout.addWidget(self._selection_bar)
 
-        # Drop zone hint (shown when empty)
-        self._drop_hint = QFrame()
-        self._drop_hint.setObjectName("DropHintCard")
-        self._drop_hint.setStyleSheet("""
-            #DropHintCard {
-                background: rgba(16, 27, 48, 0.50);
-                border: 2px dashed rgba(125, 160, 220, 0.22);
-                border-radius: 16px;
-                padding: 48px;
-            }
-        """)
-        drop_layout = QVBoxLayout(self._drop_hint)
-        drop_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_layout.setSpacing(12)
+        # ── 5. Empty State, Error State, Grid & Virtualized List View ──
+        self._drop_hint = EmptyState(
+            "folder_plus",
+            "No encrypted files here yet",
+            "Drag files or folders here to encrypt them, or click Add above.",
+            action_text="Add Files",
+            parent=page,
+        )
+        self._drop_text = self._drop_hint._desc_lbl
+        self._drop_hint.action_clicked.connect(self._show_fab_menu)
 
-        drop_icon = QLabel()
-        drop_icon.setPixmap(icons.get_pixmap("folder_plus", size=56, color=DashColors.TEXT_MUTED))
-        drop_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_icon.setStyleSheet("background: transparent;")
+        self._error_state = ErrorState(
+            "Could not load vault",
+            "The encrypted vault index could not be read.",
+            retry_text="Retry",
+            parent=page,
+        )
+        self._error_state.retry_clicked.connect(lambda: self.load_files(initial=True))
+        self._error_state.hide()
 
-        drop_text = QLabel("Drag files or folders here to encrypt them\nor click '+ Add Files' below")
-        drop_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_text.setFont(QFont("Segoe UI Variable", 13))
-        drop_text.setStyleSheet(f"color: {DashColors.TEXT_MUTED}; background: transparent; line-height: 1.6;")
-        self._drop_text = drop_text
-
-        drop_layout.addWidget(drop_icon)
-        drop_layout.addWidget(drop_text)
-
-        # File grid scroll area
         self._scroll = SmoothScrollArea()
         self._scroll.setAcceptDrops(False)
         if self._scroll.viewport():
@@ -1682,49 +954,32 @@ class Dashboard(QMainWindow):
         self._grid_container = QWidget()
         self._grid_container.setStyleSheet("background: transparent;")
         self._grid = QGridLayout(self._grid_container)
+        self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(12)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._scroll.setWidget(self._grid_container)
 
-        layout.addWidget(self._drop_hint)
+        self._list_view = VaultFileListView(
+            self._thumb_cache,
+            selected_count_provider=lambda: len(self._selected_ids),
+            parent=page,
+        )
+        self._list_view.open_requested.connect(self._open_file)
+        self._list_view.restore_requested.connect(self._restore_file)
+        self._list_view.delete_requested.connect(self._delete_file)
+        self._list_view.favorite_toggled.connect(self._toggle_favorite)
+        self._list_view.selection_requested.connect(self._handle_card_selection)
+        self._list_view.select_toggle_requested.connect(self._on_card_select_toggled)
+        self._list_view.batch_delete_requested.connect(self._delete_selected_files)
+        self._list_view.hide()
+
+        layout.addWidget(self._error_state)
+        layout.addWidget(self._drop_hint, 1)
         layout.addWidget(self._scroll, 1)
+        layout.addWidget(self._list_view, 1)
 
         self._drop_hint.show()
         self._scroll.hide()
-
-        # 5. Bottom Footer Row (Vault protection active on left, + Add Files ∨ on right)
-        footer_row = QHBoxLayout()
-        footer_row.setContentsMargins(4, 6, 4, 0)
-        footer_row.setSpacing(12)
-
-        self._protection_status = SidebarProtectionStatus()
-        footer_row.addWidget(self._protection_status, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        footer_row.addStretch()
-
-        self._fab_add = QPushButton("+ Add Files  ∨")
-        self._fab_add.setFixedSize(142, 42)
-        self._fab_add.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._fab_add.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {DashColors.ACCENT_GRAD_START}, stop:1 {DashColors.ACCENT_GRAD_END});
-                color: {DashColors.WHITE};
-                border: 1px solid rgba(255, 255, 255, 0.28);
-                border-radius: 21px;
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 13px;
-                font-weight: 600;
-                padding: 0 16px;
-            }}
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {DashColors.ACCENT_GRAD_HOVER_START}, stop:1 {DashColors.ACCENT_GRAD_HOVER_END});
-                border-color: rgba(255, 255, 255, 0.45);
-            }}
-        """)
-        self._fab_add.clicked.connect(self._show_fab_menu)
-        footer_row.addWidget(self._fab_add, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        layout.addLayout(footer_row)
 
         return page
 
@@ -1764,40 +1019,60 @@ class Dashboard(QMainWindow):
 
     def _build_category_page(self, mime_prefix: str, title: str) -> QWidget:
         page = QWidget()
-        page.setStyleSheet(f"background: {Colors.BG_DARK};")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        # Simple placeholder for now — full impl in Phase 5
-        lbl = QLabel(f"{title}\n\nOpen vault and navigate to this section.")
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"color: {Colors.TEXT_MUTED}; font-size: 14px; background: transparent;")
-        layout.addWidget(lbl)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.addWidget(
+            EmptyState(
+                "folder",
+                title,
+                "Open vault and navigate to this section.",
+                parent=page,
+            )
+        )
         return page
 
     def _build_favorites_page(self) -> QWidget:
-        return self._build_category_page("", "⭐ Favorites")
+        return self._build_category_page("", "Favorites")
 
-    def _build_placeholder(self, name: str, icon: str) -> QWidget:
+    def _build_placeholder(self, name: str, icon_name: str) -> QWidget:
         page = QWidget()
-        page.setStyleSheet(f"background: {Colors.BG_DARK};")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        lbl = QLabel(f"{icon}\n{name}")
-        lbl.setFont(QFont("Segoe UI Emoji, Segoe UI", 36))
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"color: {Colors.TEXT_MUTED}; background: transparent;")
-        layout.addWidget(lbl)
+        layout.setContentsMargins(24, 24, 24, 24)
+        ico = icon_name if icon_name.isascii() else "folder"
+        layout.addWidget(
+            EmptyState(
+                ico,
+                name,
+                f"{name} is unavailable for this session.",
+                parent=page,
+            )
+        )
         return page
 
-    # ── Navigation ────────────────────────────────────────────────────────────
+    # ── Navigation & view mode ────────────────────────────────────────────────
+
+    def _show_notifications_menu(self) -> None:
+        if hasattr(self, "_notif_btn") and self._notif_btn is not None:
+            self._notif_btn.set_unread(False)
+        msg = (
+            self._last_hotkey_error
+            if self._last_hotkey_error
+            else "All vault protections are active. Zero pending security alerts."
+        )
+        DialogShell.inform(self, "Security Status", msg)
+
+    def _set_view_mode(self, mode: str) -> None:
+        target = "list" if mode == "list" else "grid"
+        if target == self._view_mode:
+            return
+        self._view_mode = target
+        if hasattr(self, "_toolbar"):
+            self._toolbar.view_switch.set_current(target, emit_signal=False)
+        self._relayout_grid()
 
     def _unselect_all_nav(self) -> None:
-        if hasattr(self, "_nav_dashboard") and self._nav_dashboard:
-            self._nav_dashboard.set_selected(False)
-        if hasattr(self, "_nav_bin") and self._nav_bin:
-            self._nav_bin.set_selected(False)
-        for nav in getattr(self, "_nav_items", []):
-            nav.set_selected(False)
+        if hasattr(self, "_sidebar") and self._sidebar is not None:
+            self._sidebar.set_active_item(None, animate=False)
 
     def _select_category_pill(self, cat: str) -> None:
         if hasattr(self, "_pill_all"):
@@ -1810,52 +1085,50 @@ class Dashboard(QMainWindow):
         self._current_section = cat
 
         titles = {
-            "all": ("Recent Files", "Your recently added or accessed files.", "All Files"),
+            "all": ("All Files", "Your encrypted files.", "All Files"),
             "photos": ("Photos", "Your encrypted photos and images.", "Photos"),
             "videos": ("Videos", "Your private video clips.", "Videos"),
             "documents": ("Documents", "Your documents, spreadsheets and archives.", "Documents"),
             "favorites": ("Favorites", "Your starred and favorite items.", "Favorites"),
             "bin": ("Bin", "Deleted files in your vault.", "Bin"),
         }
-        title, sub, legacy_title = titles.get(cat, ("Recent Files", "Your recently added or accessed files.", "All Files"))
+        title, sub, page_title = titles.get(cat, ("All Files", "Your encrypted files.", "All Files"))
         if hasattr(self, "_section_title_lbl"):
             self._section_title_lbl.setText(title)
             self._section_sub_lbl.setText(sub)
         if hasattr(self, "_page_title"):
-            self._page_title.setText(legacy_title)
+            self._page_title.setText(page_title)
 
         cat_to_nav_idx = {"all": 0, "photos": 1, "videos": 2, "documents": 3, "favorites": 4}
-        if cat in cat_to_nav_idx and hasattr(self, "_nav_items"):
-            idx = cat_to_nav_idx[cat]
-            if idx < len(self._nav_items):
-                self._unselect_all_nav()
-                self._nav_items[idx].set_selected(True)
-                if cat == "all" and hasattr(self, "_nav_dashboard") and self._nav_dashboard:
-                    self._nav_dashboard.set_selected(True)
+        if hasattr(self, "_sidebar") and self._sidebar is not None:
+            if cat == "bin":
+                self._sidebar.set_active_item(self._nav_bin)
+            elif cat in cat_to_nav_idx and cat_to_nav_idx[cat] < len(self._nav_items):
+                self._sidebar.set_active_item(self._nav_items[cat_to_nav_idx[cat]])
 
         self._page_stack.setCurrentIndex(0)
         self.load_files()
 
     def _nav_to_dashboard(self) -> None:
-        self._unselect_all_nav()
-        if hasattr(self, "_nav_dashboard") and self._nav_dashboard:
-            self._nav_dashboard.set_selected(True)
-        if hasattr(self, "_nav_items") and self._nav_items:
-            self._nav_items[0].set_selected(True)
         self._select_category_pill("all")
 
     def _nav_to_bin(self) -> None:
-        self._unselect_all_nav()
-        if hasattr(self, "_nav_bin") and self._nav_bin:
-            self._nav_bin.set_selected(True)
         self._select_category_pill("bin")
 
     def _nav_to(self, page: int, item: SidebarItem) -> None:
-        self._unselect_all_nav()
-        item.set_selected(True)
+        if hasattr(self, "_sidebar") and self._sidebar is not None:
+            self._sidebar.set_active_item(item)
 
-        titles = ["All Files", "Photos", "Videos", "Documents",
-                  "Favorites", "Intruder Log", "App Lock", "Settings"]
+        titles = [
+            "All Files",
+            "Photos",
+            "Videos",
+            "Documents",
+            "Favorites",
+            "Intruder Log",
+            "App Lock",
+            "Settings",
+        ]
         if page < len(titles):
             self._page_title.setText(titles[page])
 
@@ -1919,34 +1192,17 @@ class Dashboard(QMainWindow):
         self._relayout_grid()
 
     def _show_fab_menu(self) -> None:
+        p = Tokens.colors
         menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background-color: {DashColors.BG_INPUT};
-                border: 1px solid rgba(125, 160, 220, 0.25);
-                border-radius: 10px;
-                padding: 6px;
-                color: {DashColors.TEXT_PRIMARY};
-                font-family: 'Segoe UI Variable', 'Segoe UI';
-                font-size: 12px;
-            }}
-            QMenu::item {{
-                padding: 8px 22px;
-                border-radius: 6px;
-            }}
-            QMenu::item:selected {{
-                background: rgba(91, 140, 255, 0.30);
-            }}
-        """)
+        _apply_dialog_shadow(menu)
         act_files = menu.addAction("Add Files…")
         act_folder = menu.addAction("Add Folder…")
-        act_files.setIcon(icons.get_icon("plus", color=DashColors.TEXT_PRIMARY))
-        act_folder.setIcon(icons.get_icon("folder_plus", color=DashColors.TEXT_PRIMARY))
+        act_files.setIcon(icons.get_icon("plus", color=p.text, active_color=p.accent, size=16))
+        act_folder.setIcon(icons.get_icon("folder_plus", color=p.text, active_color=p.accent, size=16))
         act_files.triggered.connect(self._add_files_dialog)
         act_folder.triggered.connect(self._add_folder_dialog)
 
-        from PySide6.QtCore import QPoint
-        pos = self._fab_add.mapToGlobal(QPoint(0, -menu.sizeHint().height() - 6))
+        pos = self._fab_add.mapToGlobal(QPoint(0, self._fab_add.height() + 6))
         menu.exec(pos)
 
     def _apply_loaded_index(self, index) -> None:
@@ -1995,10 +1251,26 @@ class Dashboard(QMainWindow):
         self._populate_grid(entries)
         self._schedule_thumbnail_backfill(all_files)
 
+    def _set_status_busy(self, busy: bool, current: int = 0, total: int = 0) -> None:
+        bar = getattr(self, "_status_progress", None)
+        if bar is None:
+            return
+        if not busy:
+            bar.hide()
+            return
+        if total > 0:
+            bar.setRange(0, total)
+            bar.setValue(min(current, total))
+        else:
+            bar.setRange(0, 0)
+        bar.show()
+
     def load_files(self, initial: bool = False) -> None:
         """Call after unlock to populate the file grid synchronously (used by tests & refreshes)."""
         if not self._vault:
             return
+        if hasattr(self, "_error_state"):
+            self._error_state.hide()
         try:
             if initial or not getattr(self, "_files_loaded", False):
                 index = self._vault.load()
@@ -2014,11 +1286,18 @@ class Dashboard(QMainWindow):
         except Exception as exc:
             logger.error("Failed to load vault files: %s", type(exc).__name__)
             self._status_bar.showMessage("Could not load vault index [ERR-IDX-01]", 5000)
+            if hasattr(self, "_error_state"):
+                self._error_state.set_error("Could not load vault", "The vault index could not be read [ERR-IDX-01].")
+                self._error_state.show()
+                if hasattr(self, "_drop_hint"):
+                    self._drop_hint.hide()
 
     def load_files_async(self, initial: bool = True, unlock_elapsed_s: float = 0.0) -> None:
         """Non-blocking file index load after unlock so Dashboard transitions without freezing."""
         if not self._vault or self._cleaned_up:
             return
+        if hasattr(self, "_error_state"):
+            self._error_state.hide()
 
         if (
             not getattr(self._session, "is_decoy", False)
@@ -2036,6 +1315,7 @@ class Dashboard(QMainWindow):
             return
 
         self._status_bar.showMessage("Loading encrypted vault…")
+        self._set_status_busy(True, 0, 0)
         do_initial = bool(initial or not getattr(self, "_files_loaded", False))
         worker = _VaultLoadWorker(self._vault, self._vault_service, do_initial)
         self._load_worker = worker
@@ -2043,6 +1323,7 @@ class Dashboard(QMainWindow):
         def _on_loaded(idx: object) -> None:
             self._load_worker = None
             worker.deleteLater()
+            self._set_status_busy(False)
             if self._cleaned_up or not getattr(self._session, "is_unlocked", False):
                 return
             self._files_loaded = True
@@ -2053,14 +1334,24 @@ class Dashboard(QMainWindow):
         def _on_corrupt() -> None:
             self._load_worker = None
             worker.deleteLater()
+            self._set_status_busy(False)
             if not self._cleaned_up and getattr(self._session, "is_unlocked", False):
                 self._handle_corrupt_index()
 
         def _on_failed(_err: str) -> None:
             self._load_worker = None
             worker.deleteLater()
+            self._set_status_busy(False)
             if not self._cleaned_up:
                 self._status_bar.showMessage("Could not load vault index [ERR-IDX-01]", 5000)
+                if hasattr(self, "_error_state"):
+                    self._error_state.set_error(
+                        "Could not load vault",
+                        "The encrypted vault index could not be verified [ERR-IDX-01].",
+                    )
+                    self._error_state.show()
+                    if hasattr(self, "_drop_hint"):
+                        self._drop_hint.hide()
 
         worker.loaded.connect(_on_loaded, Qt.ConnectionType.QueuedConnection)
         worker.corrupt.connect(_on_corrupt, Qt.ConnectionType.QueuedConnection)
@@ -2072,22 +1363,20 @@ class Dashboard(QMainWindow):
         backups = [self._vault.vault_dir / f"index.bak{i}" for i in range(1, 4)]
         available = [b for b in backups if b.exists()]
         if not available:
-            QMessageBox.critical(
+            DialogShell.error(
                 self,
                 "Vault Index Corrupted",
                 "The vault index could not be verified and no backups were found. [ERR-IDX-02]",
             )
             return
 
-        from PySide6.QtWidgets import QInputDialog
         names = [b.name for b in available]
-        choice, ok = QInputDialog.getItem(
+        choice, ok = DialogShell.choose_item(
             self,
             "Recover Vault Index",
             "Primary index.dat is corrupted. Choose an encrypted backup to restore:",
             names,
-            0,
-            False,
+            confirm_text="Restore Backup",
         )
         if ok and choice:
             chosen_path = self._vault.vault_dir / choice
@@ -2098,9 +1387,9 @@ class Dashboard(QMainWindow):
                 self._vault._loaded = True
                 self._files_loaded = True
                 self._populate_grid(self._filter_entries(idx.all_files()))
-                QMessageBox.information(self, "Recovered", f"Vault index successfully recovered from {choice}.")
+                DialogShell.inform(self, "Recovered", f"Vault index successfully recovered from {choice}.")
             except Exception:
-                QMessageBox.critical(
+                DialogShell.error(
                     self,
                     "Recovery Failed",
                     "Selected backup could not be decrypted or verified. [ERR-IDX-03]",
@@ -2183,9 +1472,19 @@ class Dashboard(QMainWindow):
         finally:
             self._grid_container.setUpdatesEnabled(True)
 
+    def _use_virtual_list_view(self) -> bool:
+        return self._view_mode == "list" or len(self._current_entries) > _VIRTUAL_LIST_THRESHOLD
+
+    def _grid_col_count(self) -> int:
+        vp = self._scroll.viewport()
+        avail = vp.width() if (vp and vp.width() > 100) else max(240, self._scroll.width())
+        return max(1, (avail + 12) // (FileCard.CARD_WIDTH + 12))
+
     def _relayout_grid(self) -> None:
         if hasattr(self, "_grid_render_timer") and self._grid_render_timer.isActive():
             self._grid_render_timer.stop()
+        if hasattr(self, "_error_state"):
+            self._error_state.hide()
 
         self._grid_container.setUpdatesEnabled(False)
         try:
@@ -2198,32 +1497,70 @@ class Dashboard(QMainWindow):
             self._render_offset = 0
 
             if not self._current_entries:
-                if hasattr(self, "_drop_text"):
+                if hasattr(self, "_drop_hint"):
                     search_text = self._search.text().strip() if hasattr(self, "_search") else ""
                     if search_text:
-                        self._drop_text.setText("No encrypted files match your search.")
+                        self._drop_hint.set_content(
+                            "No matching files",
+                            "No encrypted files match your search.",
+                            action_text="",
+                        )
                     elif self._current_section == "photos":
-                        self._drop_text.setText("No photos in this vault yet.\nDrag images here or click '+ Add Files' above.")
+                        self._drop_hint.set_content(
+                            "No photos yet",
+                            "Drag images here or click Add above to encrypt photos.",
+                            action_text="Add Files",
+                        )
                     elif self._current_section == "videos":
-                        self._drop_text.setText("No videos in this vault yet.\nDrag videos here or click '+ Add Files' above.")
+                        self._drop_hint.set_content(
+                            "No videos yet",
+                            "Drag video clips here or click Add above to encrypt them.",
+                            action_text="Add Files",
+                        )
                     elif self._current_section == "documents":
-                        self._drop_text.setText("No documents or other files in this vault yet.\nDrag files here or click '+ Add Files' above.")
+                        self._drop_hint.set_content(
+                            "No documents yet",
+                            "Drag documents or archives here or click Add above.",
+                            action_text="Add Files",
+                        )
                     elif self._current_section == "favorites":
-                        self._drop_text.setText("No favorite files yet.\nRight-click any file card and choose 'Add to Favorites'.")
+                        self._drop_hint.set_content(
+                            "No favorites yet",
+                            "Right-click any file and choose 'Add to Favorites' to pin it here.",
+                            action_text="",
+                        )
+                    elif self._current_section == "bin":
+                        self._drop_hint.set_content(
+                            "Bin is empty",
+                            "Deleted items will appear here when removed.",
+                            action_text="",
+                        )
                     else:
-                        self._drop_text.setText("Drag files or folders here to encrypt them\nor click '+ Add Files' above")
+                        self._drop_hint.set_content(
+                            "No encrypted files here yet",
+                            "Drag files or folders here to encrypt them, or click Add above.",
+                            action_text="Add Files",
+                        )
                 self._drop_hint.show()
                 self._scroll.hide()
+                if hasattr(self, "_list_view"):
+                    self._list_view.hide()
+                    self._list_view.set_data([], self._selected_ids, self._selection_mode)
                 self._sync_selection_ui()
                 return
 
             self._drop_hint.hide()
-            self._scroll.show()
+            if self._use_virtual_list_view() and hasattr(self, "_list_view"):
+                self._scroll.hide()
+                self._list_view.show()
+                self._list_view.set_data(self._current_entries, self._selected_ids, self._selection_mode)
+                self._sync_selection_ui()
+                return
 
-            vp = self._scroll.viewport()
-            avail = vp.width() if (vp and vp.width() > 100) else self._scroll.width()
-            col_count = max(1, (avail - 24) // 172)
-            self._current_cols = col_count
+            if hasattr(self, "_list_view"):
+                self._list_view.hide()
+            self._scroll.show()
+            self._current_cols = self._grid_col_count()
         finally:
             self._grid_container.setUpdatesEnabled(True)
 
@@ -2233,9 +1570,9 @@ class Dashboard(QMainWindow):
     def _on_debounced_resize(self) -> None:
         if self._cleaned_up or not (hasattr(self, "_scroll") and hasattr(self, "_grid") and self._current_entries):
             return
-        vp = self._scroll.viewport()
-        avail = vp.width() if (vp and vp.width() > 100) else self._scroll.width()
-        col_count = max(1, (avail - 24) // 172)
+        if self._use_virtual_list_view():
+            return
+        col_count = self._grid_col_count()
         if col_count != getattr(self, "_current_cols", 5):
             if self._rendered_cards:
                 self._reposition_rendered_cards(col_count)
@@ -2322,6 +1659,8 @@ class Dashboard(QMainWindow):
                 selected=(fid in self._selected_ids),
                 selection_mode=self._selection_mode,
             )
+        if hasattr(self, "_list_view") and self._list_view.isVisible():
+            self._list_view.update_selection(self._selected_ids, self._selection_mode)
 
     def _delete_selected_files(self) -> None:
         if not self._vault or not self._selected_ids:
@@ -2338,13 +1677,14 @@ class Dashboard(QMainWindow):
             return
 
         n = len(target_ids)
-        reply = QMessageBox.question(
+        confirmed = DialogShell.confirm(
             self,
             "Delete Selected Files",
             f"Permanently remove {n} selected file(s) from the vault?\n\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            confirm_text=f"Delete ({n})",
+            danger=True,
         )
-        if reply != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
 
         self._clear_selection(exit_mode=True)
@@ -2360,7 +1700,7 @@ class Dashboard(QMainWindow):
                 self._vault.delete_many_from_vault(target_ids)
                 self.load_files()
             except Exception:
-                QMessageBox.critical(self, "Error", "Failed to delete selected files. [ERR-DEL-02]")
+                DialogShell.error(self, "Error", "Failed to delete selected files. [ERR-DEL-02]")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -2370,6 +1710,7 @@ class Dashboard(QMainWindow):
     # ── Service callbacks ─────────────────────────────────────────────────────
 
     def _on_service_started(self, task_id: str, task_desc: str) -> None:
+        self._set_status_busy(True, 0, 0)
         if not self._active_overlay:
             self._active_overlay = ProgressOverlay(task_desc or "Working…", self)
             if self._vault_service:
@@ -2377,6 +1718,7 @@ class Dashboard(QMainWindow):
             self._active_overlay.show()
 
     def _on_service_progress(self, current: int, total: int, step: str) -> None:
+        self._set_status_busy(True, current, max(1, total))
         if self._active_overlay:
             self._active_overlay.set_progress(current, total, step)
 
@@ -2385,6 +1727,7 @@ class Dashboard(QMainWindow):
             self._status_bar.showMessage("Vault operation step completed.", 2500)
 
     def _on_service_finished(self, task_id: str, success: bool, message: str) -> None:
+        self._set_status_busy(False)
         if self._active_overlay:
             self._active_overlay.accept()
             self._active_overlay = None
@@ -2392,10 +1735,11 @@ class Dashboard(QMainWindow):
         self._status_bar.showMessage(message or "Vault task completed.", 4000)
 
     def _on_service_error(self, task_id: str, err_code: str, error_msg: str) -> None:
+        self._set_status_busy(False)
         if self._active_overlay:
             self._active_overlay.accept()
             self._active_overlay = None
-        QMessageBox.critical(self, "Vault Error", f"Operation failed [{err_code}]:\n{error_msg}")
+        DialogShell.error(self, "Vault Error", f"Operation failed [{err_code}]:\n{error_msg}")
 
     def _add_files_dialog(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Select Files to Encrypt")
@@ -2427,12 +1771,14 @@ class Dashboard(QMainWindow):
         self._vault_service.restore_file(file_id, Path(dest), remove=False)
 
     def _delete_file(self, file_id: str) -> None:
-        reply = QMessageBox.question(
-            self, "Delete from Vault",
+        confirmed = DialogShell.confirm(
+            self,
+            "Delete from Vault",
             "Permanently remove this file from the vault?\n\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+            confirm_text="Delete",
+            danger=True,
         )
-        if reply == QMessageBox.StandardButton.Yes:
+        if confirmed:
             self._stop_thumbnail_backfill()
             if self._vault_service:
                 self._vault_service.delete_file(file_id)
@@ -2441,7 +1787,7 @@ class Dashboard(QMainWindow):
                     self._vault.delete_from_vault(file_id)
                     self.load_files()
                 except Exception:
-                    QMessageBox.critical(self, "Error", "Failed to delete file from vault. [ERR-DEL-01]")
+                    DialogShell.error(self, "Error", "Failed to delete file from vault. [ERR-DEL-01]")
 
     def _open_file(self, file_id: str) -> None:
         """Open a file in the built-in viewer."""
@@ -2499,13 +1845,13 @@ class Dashboard(QMainWindow):
             except Exception as exc:
                 zero_bytes(data)
                 logger.error("Gallery open failed: %s", type(exc).__name__)
-                QMessageBox.critical(self, "Error", "Could not open image in viewer. [ERR-GAL-01]")
+                DialogShell.error(self, "Error", "Could not open image in viewer. [ERR-GAL-01]")
 
         def _on_err(_err: str) -> None:
             self._opening_file = False
             self._update_status()
             if not self._cleaned_up:
-                QMessageBox.critical(self, "Error", "Could not open image in viewer. [ERR-GAL-01]")
+                DialogShell.error(self, "Error", "Could not open image in viewer. [ERR-GAL-01]")
 
         self._run_action_worker(_load_bytes, _on_ok, _on_err)
 
@@ -2517,7 +1863,7 @@ class Dashboard(QMainWindow):
             player.exec()
         except Exception as exc:
             logger.error("Video player open failed: %s", type(exc).__name__)
-            QMessageBox.critical(self, "Error", "Could not open video in player. [ERR-VID-01]")
+            DialogShell.error(self, "Error", "Could not open video in player. [ERR-VID-01]")
 
     def _open_external(self, file_id: str) -> None:
         if self._opening_file or not self._vault:
@@ -2533,13 +1879,13 @@ class Dashboard(QMainWindow):
             self._opening_file = False
             self._update_status()
             if not self._cleaned_up and not ok:
-                QMessageBox.warning(self, "Cannot Open File", "Unable to open this file with its default application. [ERR-EXT-01]")
+                DialogShell.warn(self, "Cannot Open File", "Unable to open this file with its default application. [ERR-EXT-01]")
 
         def _on_err(_err: str) -> None:
             self._opening_file = False
             self._update_status()
             if not self._cleaned_up:
-                QMessageBox.critical(self, "Error", "Failed to open external file. [ERR-EXT-02]")
+                DialogShell.error(self, "Error", "Failed to open external file. [ERR-EXT-02]")
 
         self._run_action_worker(_launch, _on_ok, _on_err)
 
@@ -2557,13 +1903,13 @@ class Dashboard(QMainWindow):
                 except Exception:
                     pass
                 return
-            reply = QMessageBox.question(
+            confirmed = DialogShell.confirm(
                 self,
                 "File Modified Externally",
                 f"Changes detected in '{name}'.\n\nWould you like to save the updated version back to your vault?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                confirm_text="Save Changes",
             )
-            if reply == QMessageBox.StandardButton.Yes and file_path.exists():
+            if confirmed and file_path.exists():
                 try:
                     if self._vault_service:
                         with self._vault_service._lock:
@@ -2571,9 +1917,9 @@ class Dashboard(QMainWindow):
                     else:
                         self._vault.update_file(file_id, file_path)
                     self.load_files()
-                    QMessageBox.information(self, "Updated", f"'{name}' successfully updated in vault.")
+                    DialogShell.inform(self, "Updated", f"'{name}' successfully updated in vault.")
                 except Exception:
-                    QMessageBox.warning(self, "Save Failed", "Could not update file in vault. [ERR-UPD-01]")
+                    DialogShell.warn(self, "Save Failed", "Could not update file in vault. [ERR-UPD-01]")
             else:
                 try:
                     if file_path.exists():
@@ -2593,12 +1939,12 @@ class Dashboard(QMainWindow):
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
+            p = Tokens.colors
             self._drop_hint.setStyleSheet(f"""
-                QFrame {{
-                    background: rgba(139, 156, 255, 0.08);
-                    border: 2px dashed {Colors.PRIMARY};
-                    border-radius: 16px;
-                    padding: 48px;
+                #EmptyStateCard {{
+                    background-color: {p.accent_tint};
+                    border: 2px dashed {p.accent};
+                    border-radius: {Tokens.radius.CARD}px;
                 }}
             """)
 
@@ -2607,14 +1953,8 @@ class Dashboard(QMainWindow):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event) -> None:
-        self._drop_hint.setStyleSheet(f"""
-            QFrame {{
-                background: {Colors.BG_INPUT};
-                border: 2px dashed {Colors.BORDER};
-                border-radius: 16px;
-                padding: 48px;
-            }}
-        """)
+        if hasattr(self._drop_hint, "_apply_theme"):
+            self._drop_hint._apply_theme()
 
     def dropEvent(self, event: QDropEvent) -> None:
         self.dragLeaveEvent(event)
@@ -2634,6 +1974,11 @@ class Dashboard(QMainWindow):
             self._nav_to(0, self._nav_items[0])
             return
         self.load_files()
+
+    def _focus_search(self) -> None:
+        if self._page_stack.currentIndex() != 0 and self._nav_items:
+            self._nav_to(0, self._nav_items[0])
+        self._search.setFocus()
 
     # ── Screenshot protection ─────────────────────────────────────────────────
 
@@ -2660,12 +2005,8 @@ class Dashboard(QMainWindow):
             self._settings_ui.screen_protect_check.blockSignals(False)
 
     def _update_ss_btn_ui(self) -> None:
-        if self._screenshot_blocked:
-            self._ss_btn.setText(" Protected")
-            self._ss_btn.setIcon(icons.get_icon("shield_check", Colors.SUCCESS))
-        else:
-            self._ss_btn.setText(" Unprotected")
-            self._ss_btn.setIcon(icons.get_icon("shield_alert", Colors.WARNING))
+        if hasattr(self, "_title_bar") and self._title_bar is not None:
+            self._title_bar.update_screenshot_state(self._screenshot_blocked)
 
     # ── Lock shortcut ─────────────────────────────────────────────────────────
 
@@ -2674,9 +2015,8 @@ class Dashboard(QMainWindow):
         sc = QShortcut(QKeySequence("Ctrl+Alt+L"), self)
         sc.activated.connect(self.lock_requested.emit)
 
-        # Ctrl+F to focus search input (Item 51)
         search_sc = QShortcut(QKeySequence("Ctrl+F"), self)
-        search_sc.activated.connect(self._search.setFocus)
+        search_sc.activated.connect(self._focus_search)
 
         sel_all_sc = QShortcut(QKeySequence("Ctrl+A"), self)
         sel_all_sc.activated.connect(self._on_ctrl_a_shortcut)
@@ -2919,6 +2259,8 @@ class Dashboard(QMainWindow):
         card = self._cards_by_id.get(file_id)
         if card is not None:
             card.set_thumbnail_b64(b64)
+        if hasattr(self, "_list_view"):
+            self._list_view.file_model.notify_entry_updated(file_id)
         self._pending_thumb_saves[file_id] = b64
         if len(self._pending_thumb_saves) >= 8:
             self._flush_pending_thumb_index()
@@ -2991,8 +2333,10 @@ class Dashboard(QMainWindow):
         self._img_backfill_worker = None
 
     def _update_status(self) -> None:
+        n = len(self._current_entries)
+        noun = "file" if n == 1 else "files"
         self._status_bar.showMessage(
-            "Vault unlocked  •  Ctrl+Alt+L to lock  •  Protected by AES-256-GCM"
+            f"Vault unlocked · {n} {noun} · Ctrl+Alt+L to lock"
         )
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
@@ -3002,6 +2346,7 @@ class Dashboard(QMainWindow):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        Tokens.unsubscribe(self._on_theme_changed)
         if getattr(self, "_hotkey_connected", False):
             self._hotkey_connected = False
             try:
