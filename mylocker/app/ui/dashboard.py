@@ -605,11 +605,11 @@ class Dashboard(QMainWindow):
     def _apply_dashboard_theme(self) -> None:
         p = Tokens.colors
         if hasattr(self, "_central") and self._central is not None:
-            self._central.setStyleSheet(f"background-color: {p.bg};")
+            self._central.setStyleSheet(f"#DashboardCentral {{ background-color: {p.bg}; }}")
         if hasattr(self, "_content_widget") and self._content_widget is not None:
-            self._content_widget.setStyleSheet(f"background-color: {p.bg};")
+            self._content_widget.setStyleSheet(f"#DashboardContent {{ background-color: {p.bg}; }}")
         if hasattr(self, "_files_widget") and self._files_widget is not None:
-            self._files_widget.setStyleSheet(f"background-color: {p.bg};")
+            self._files_widget.setStyleSheet(f"#FilesPage {{ background-color: {p.bg}; }}")
         if hasattr(self, "_status_bar") and self._status_bar is not None:
             self._status_bar.setStyleSheet(f"""
                 QStatusBar {{
@@ -666,6 +666,7 @@ class Dashboard(QMainWindow):
 
     def _build_ui(self) -> None:
         self._central = QWidget()
+        self._central.setObjectName("DashboardCentral")
         self.setCentralWidget(self._central)
 
         root = QHBoxLayout(self._central)
@@ -678,6 +679,7 @@ class Dashboard(QMainWindow):
 
         # ── Content area ──
         self._content_widget = QWidget()
+        self._content_widget.setObjectName("DashboardContent")
         content_layout = QVBoxLayout(self._content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
@@ -799,6 +801,7 @@ class Dashboard(QMainWindow):
 
     def _build_files_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("FilesPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)

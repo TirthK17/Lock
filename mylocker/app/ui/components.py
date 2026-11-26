@@ -434,6 +434,8 @@ class SegmentedControl(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SegmentedControl")
+        self.setFixedHeight(34)
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._buttons: dict[str, QPushButton] = {}
         self._icons: dict[str, Optional[str]] = {}
         self._current: str = current or (options[0][0] if options else "")

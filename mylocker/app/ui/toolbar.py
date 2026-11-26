@@ -174,7 +174,7 @@ class WorkspaceToolbar(QFrame):
         self.sort_combo = QComboBox(self)
         self.sort_combo.addItems(["Sort: Recent", "Sort: Name", "Sort: Size", "Sort: Type"])
         self.sort_combo.setMinimumHeight(34)
-        self.sort_combo.setMinimumWidth(116)
+        self.sort_combo.setMinimumWidth(128)
         self.sort_combo.setAccessibleName("Sort files")
         self.sort_combo.currentIndexChanged.connect(self.sort_changed.emit)
         lay.addWidget(self.sort_combo)

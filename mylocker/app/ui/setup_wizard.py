@@ -93,6 +93,7 @@ class SetupWizard(QWidget):
         self._worker_thread: Optional[QThread] = None
         self._current_step = 0
 
+        self.setObjectName("SetupWizard")
         self._bl_status_ready.connect(self._on_bitlocker_checked)
         self._build_ui()
         Tokens.subscribe(self._on_theme)
@@ -108,7 +109,7 @@ class SetupWizard(QWidget):
 
     def _apply_theme(self) -> None:
         p = Tokens.colors
-        self.setStyleSheet(f"background-color: {p.bg};")
+        self.setStyleSheet(f"#SetupWizard {{ background-color: {p.bg}; }}")
         if hasattr(self, "_rec_display"):
             self._rec_display.setStyleSheet(f"""
                 background-color: {p.input_bg};
@@ -170,7 +171,8 @@ class SetupWizard(QWidget):
         scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }")
 
         page = QWidget()
-        page.setStyleSheet("background: transparent;")
+        page.setObjectName("WizardPage")
+        page.setStyleSheet("#WizardPage { background: transparent; }")
         v = QVBoxLayout(page)
         v.setContentsMargins(16, 8, 16, 16)
         v.addStretch(1)

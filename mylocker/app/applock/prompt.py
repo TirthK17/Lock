@@ -95,7 +95,8 @@ class AppLockPrompt(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
 
         dimmer = QWidget(self)
-        dimmer.setStyleSheet(f"background-color: {p.overlay};")
+        dimmer.setObjectName("AppLockDimmer")
+        dimmer.setStyleSheet(f"#AppLockDimmer {{ background-color: {p.overlay}; }}")
         outer.addWidget(dimmer)
 
         dimmer_layout = QVBoxLayout(dimmer)
@@ -155,13 +156,14 @@ class AppLockPrompt(QDialog):
         # Error label
         self.error_lbl = FadeLabel("")
         self.error_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.error_lbl.setStyleSheet("background: transparent;")
         card_layout.addWidget(self.error_lbl)
 
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(8)
 
-        cancel_btn = DangerButton("Block & Terminate", parent=card)
+        cancel_btn = DangerButton("Block && Terminate", parent=card)
         cancel_btn.setFixedHeight(40)
         cancel_btn.clicked.connect(self._terminate)
         btn_layout.addWidget(cancel_btn, 1)

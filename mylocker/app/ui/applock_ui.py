@@ -230,8 +230,10 @@ class AppLockUI(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 114)
+        self.table.setColumnWidth(2, 118)
         layout.addWidget(self.table, 1)
 
     def _load_table(self) -> None:
@@ -246,7 +248,7 @@ class AppLockUI(QWidget):
         for exe in sorted(self.protected_exes):
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setRowHeight(row, 44)
+            self.table.setRowHeight(row, 48)
 
             name_item = QTableWidgetItem(exe)
             name_item.setIcon(icons.get_icon("lock", color=p.accent, active_color=p.accent, size=16))
@@ -254,6 +256,7 @@ class AppLockUI(QWidget):
             self.table.setItem(row, 0, name_item)
 
             status_badge = Badge("Protected", "accent", self.table)
+            status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setCellWidget(row, 1, status_badge)
 
             del_btn = DangerButton("Remove", parent=self.table)

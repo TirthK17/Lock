@@ -151,9 +151,12 @@ class IntruderLogUI(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(1, 128)
+        self.table.setColumnWidth(2, 132)
+        self.table.setColumnWidth(3, 134)
         layout.addWidget(self.table, 1)
 
     def refresh_log(self) -> None:
@@ -181,7 +184,7 @@ class IntruderLogUI(QWidget):
         for entry in reversed(entries):
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setRowHeight(row, 44)
+            self.table.setRowHeight(row, 48)
 
             # Timestamp
             ts_item = QTableWidgetItem(entry.get("timestamp", "Unknown"))
@@ -190,6 +193,7 @@ class IntruderLogUI(QWidget):
             # Count badge
             count = entry.get("fail_count", 1)
             count_badge = Badge(f"Attempt #{count}", "danger" if count >= 3 else "warning", self.table)
+            count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setCellWidget(row, 1, count_badge)
 
             # Photo status

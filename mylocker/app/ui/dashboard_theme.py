@@ -151,33 +151,32 @@ class MetricCard(QFrame):
         self._value_str = value
         self._label_str = label
         self.setProperty("card", True)
-        self.setMinimumHeight(76)
+        self.setMinimumHeight(74)
         self.setMinimumWidth(140)
         self.setObjectName("MetricCard")
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(10)
 
         self._icon_box = QLabel(self)
-        self._icon_box.setFixedSize(36, 36)
+        self._icon_box.setFixedSize(30, 30)
         self._icon_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._icon_box)
-
-        text_col = QVBoxLayout()
-        text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(2)
+        top_row.addWidget(self._icon_box)
 
         self._val_lbl = QLabel(value, self)
         self._val_lbl.setFont(Tokens.type.font(Tokens.type.PAGE_TITLE, Tokens.type.WEIGHT_TITLE))
-        text_col.addWidget(self._val_lbl)
+        top_row.addWidget(self._val_lbl, 1)
+        layout.addLayout(top_row)
 
         self._lbl = QLabel(label, self)
         self._lbl.setProperty("role", "secondary")
         self._lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
-        text_col.addWidget(self._lbl)
-
-        layout.addLayout(text_col, 1)
+        layout.addWidget(self._lbl)
 
         self._wave = WaveSparkline(accent_color_hex, self)
         self._wave.hide()
@@ -453,9 +452,9 @@ class SidebarBrandWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedHeight(44)
+        self.setFixedHeight(48)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setContentsMargins(8, 5, 8, 5)
         lay.setSpacing(10)
 
         self._icon_lbl = QLabel(self)

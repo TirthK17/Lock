@@ -132,7 +132,7 @@ class SettingsUI(QWidget):
             }}
             QListWidget::item {{
                 color: {p.text_secondary};
-                padding: 8px 12px;
+                padding: 7px 10px;
                 border-radius: {Tokens.radius.CONTROL}px;
             }}
             QListWidget::item:hover {{
@@ -204,11 +204,12 @@ class SettingsUI(QWidget):
 
         body_split = QHBoxLayout()
         body_split.setContentsMargins(0, 0, 0, 0)
-        body_split.setSpacing(16)
+        body_split.setSpacing(12)
 
         # Left Category Rail
         self._cat_list = QListWidget(self)
-        self._cat_list.setFixedWidth(164)
+        self._cat_list.setFixedWidth(174)
+        self._cat_list.setMinimumHeight(284)
         self._cat_list.setWordWrap(True)
         self._cat_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._cat_list.setAccessibleName("Settings categories")
@@ -218,10 +219,11 @@ class SettingsUI(QWidget):
         self._scroll = SmoothScrollArea()
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         container = QWidget()
+        container.setObjectName("SettingsScrollContainer")
         container.setMinimumWidth(0)
-        container.setStyleSheet("background: transparent;")
+        container.setStyleSheet("#SettingsScrollContainer { background: transparent; }")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(16)
 
         # ── 1. Security & Auto-Lock ──
@@ -500,7 +502,7 @@ class SettingsUI(QWidget):
         card = Card(self)
         card.setObjectName("SettingsCard")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(16, 16, 16, 16)
+        lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(12)
         lay.addWidget(SectionHeader(title, card))
         return card, lay
