@@ -26,8 +26,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mylocker.app.ui.theme import Colors
-
 logger = logging.getLogger(__name__)
 
 
@@ -127,51 +125,52 @@ class CalculatorDisguise(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        self.setStyleSheet(f"background-color: {Colors.BG_DARKEST};")
+        # Neutral native Windows-like dark calculator surface — deliberately no Vault branding.
+        self.setStyleSheet("background-color: #202020;")
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(16, 16, 16, 16)
 
-        # Centered frame
-        card = QFrame()
+        card = QFrame(self)
         card.setObjectName("CalcCard")
-        card.setFixedSize(360, 480)
-        card.setStyleSheet(f"""
-            #CalcCard {{
-                background-color: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 16px;
-            }}
+        card.setFixedSize(336, 444)
+        card.setStyleSheet("""
+            #CalcCard {
+                background-color: #202020;
+                border: 1px solid #303030;
+                border-radius: 8px;
+            }
         """)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 18, 18, 18)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
 
-        # Title bar in card
-        title = QLabel("Calculator")
-        title.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {Colors.TEXT_MUTED}; background: transparent;")
+        title = QLabel("Standard", card)
+        title.setFont(QFont("Segoe UI Variable", 12, QFont.Weight.DemiBold))
+        title.setStyleSheet("color: #EAEAEA; background: transparent; padding: 0 4px;")
         card_layout.addWidget(title)
 
-        # Display LCD
-        self.display = QLineEdit("0")
+        # Display
+        self.display = QLineEdit("0", card)
         self.display.setReadOnly(True)
-        self.display.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.display.setFont(QFont("Segoe UI", 26))
-        self.display.setFixedHeight(64)
-        self.display.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {Colors.BG_INPUT};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 10px;
-                color: {Colors.TEXT_PRIMARY};
-                padding-right: 12px;
-            }}
+        self.display.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.display.setFont(QFont("Segoe UI Variable", 28, QFont.Weight.DemiBold))
+        self.display.setFixedHeight(72)
+        self.display.setStyleSheet("""
+            QLineEdit {
+                background-color: #202020;
+                border: none;
+                border-radius: 4px;
+                color: #FFFFFF;
+                padding: 4px 8px;
+            }
         """)
         card_layout.addWidget(self.display)
 
-        # Button Grid
+        # Crisp 4-column native key grid
         grid = QGridLayout()
-        grid.setSpacing(8)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
 
         buttons = [
             ("C", 0, 0), ("±", 0, 1), ("%", 0, 2), ("÷", 0, 3),
@@ -182,51 +181,50 @@ class CalculatorDisguise(QWidget):
         ]
 
         for text, r, c in buttons:
-            btn = QPushButton(text)
-            btn.setFont(QFont("Segoe UI", 14, QFont.Weight.Medium))
-            btn.setFixedSize(68 if text != "0" else 68, 52)
+            btn = QPushButton(text, card)
+            btn.setFont(QFont("Segoe UI Variable", 14, QFont.Weight.Normal))
+            btn.setFixedSize(75, 54)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-            if text in {"÷", "×", "-", "+", "="}:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {Colors.ACCENT};
-                        color: {Colors.WHITE};
-                        border-radius: 10px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {Colors.ACCENT_HOVER};
-                    }}
+            if text == "=":
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #76B9ED;
+                        color: #111111;
+                        border: none;
+                        border-radius: 4px;
+                        font-weight: 600;
+                    }
+                    QPushButton:hover { background-color: #6BAEE2; }
+                    QPushButton:pressed { background-color: #5C9DCE; }
                 """)
-            elif text in {"C", "±", "%"}:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {Colors.BG_INPUT};
-                        color: {Colors.TEXT_SECONDARY};
-                        border: 1px solid {Colors.BORDER};
-                        border-radius: 10px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {Colors.BG_CARD_HOVER};
-                    }}
+            elif text in {"÷", "×", "-", "+", "C", "±", "%"}:
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #323232;
+                        color: #F3F3F3;
+                        border: 1px solid #3A3A3A;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover { background-color: #3B3B3B; }
+                    QPushButton:pressed { background-color: #2B2B2B; }
                 """)
             else:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {Colors.BG_DARK};
-                        color: {Colors.TEXT_PRIMARY};
-                        border: 1px solid {Colors.BORDER};
-                        border-radius: 10px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {Colors.BG_CARD_HOVER};
-                    }}
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3B3B3B;
+                        color: #FFFFFF;
+                        border: 1px solid #434343;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover { background-color: #454545; }
+                    QPushButton:pressed { background-color: #303030; }
                 """)
 
-            btn.clicked.connect(lambda _, t=text: self._on_btn_click(t))
+            btn.clicked.connect(lambda _=False, t=text: self._on_btn_click(t))
             if text == "=":
                 grid.addWidget(btn, r, c, 1, 2)
-                btn.setFixedSize(144, 52)
+                btn.setFixedSize(154, 54)
             else:
                 grid.addWidget(btn, r, c)
 

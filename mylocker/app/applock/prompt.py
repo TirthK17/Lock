@@ -15,15 +15,12 @@ import logging
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -31,8 +28,10 @@ from PySide6.QtWidgets import (
 from ..core.keystore import Keystore
 from ..core.lockout import LockoutManager
 from ..core.settings_store import SettingsStore
-from ..ui.theme import Colors
-from ..ui.widgets import FadeLabel, GlowButton
+from ..ui import icons
+from ..ui.components import DangerButton, PrimaryButton, _apply_dialog_shadow
+from ..ui.design_system import Tokens
+from ..ui.widgets import FadeLabel
 from .process_utils import resume_process, terminate_process
 
 logger = logging.getLogger(__name__)
@@ -90,64 +89,65 @@ class AppLockPrompt(QDialog):
             pass
 
     def _build_ui(self) -> None:
+        p = Tokens.colors
         # Fullscreen dimmed background container
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         dimmer = QWidget(self)
-        dimmer.setStyleSheet("background-color: rgba(5, 7, 12, 0.85);")
+        dimmer.setStyleSheet(f"background-color: {p.overlay};")
         outer.addWidget(dimmer)
 
         dimmer_layout = QVBoxLayout(dimmer)
         dimmer_layout.addStretch(1)
 
-        # Centered Card
-        card = QFrame()
+        # Centered Card (400px, 16px dialog radius, hairline border, single soft shadow)
+        card = QFrame(dimmer)
         card.setObjectName("AppLockPromptCard")
-        card.setFixedWidth(420)
+        card.setFixedWidth(400)
         card.setStyleSheet(f"""
             #AppLockPromptCard {{
-                background-color: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 20px;
+                background-color: {p.card};
+                border: 1px solid {p.border_strong};
+                border-radius: {Tokens.radius.DIALOG}px;
             }}
         """)
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        shadow.setBlurRadius(50)
-        shadow.setOffset(0, 15)
-        card.setGraphicsEffect(shadow)
+        _apply_dialog_shadow(card)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(36, 36, 36, 36)
+        card_layout.setContentsMargins(32, 32, 32, 32)
         card_layout.setSpacing(16)
 
-        # Lock Icon
-        icon_lbl = QLabel("🛡️")
-        icon_lbl.setFont(QFont("Segoe UI Emoji", 42))
+        # SVG Shield Lock Icon
+        icon_lbl = QLabel(card)
+        icon_lbl.setFixedSize(48, 48)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet("background: transparent;")
-        card_layout.addWidget(icon_lbl)
+        icon_lbl.setStyleSheet(
+            f"background-color: {p.accent_tint}; border: 1px solid {p.accent_border}; border-radius: 12px;"
+        )
+        icon_lbl.setPixmap(icons.get_pixmap("shield_lock", size=24, color=p.accent))
+        card_layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignCenter)
 
         # Title
-        title_lbl = QLabel("Application Locked")
-        title_lbl.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        title_lbl = QLabel("Application Locked", card)
+        title_lbl.setFont(Tokens.type.font(Tokens.type.PAGE_TITLE, Tokens.type.WEIGHT_TITLE))
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
+        title_lbl.setStyleSheet(f"color: {p.text}; background: transparent;")
         card_layout.addWidget(title_lbl)
 
         # Subtitle
-        sub_lbl = QLabel(f"Enter master password to unlock:\n{self.exe_name}")
-        sub_lbl.setFont(QFont("Segoe UI", 12))
+        sub_lbl = QLabel(f"Enter master password to launch {self.exe_name}", card)
+        sub_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        sub_lbl.setWordWrap(True)
         sub_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub_lbl.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; background: transparent;")
+        sub_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
         card_layout.addWidget(sub_lbl)
-        card_layout.addSpacing(8)
 
         # Password input
-        self.pw_input = QLineEdit()
+        self.pw_input = QLineEdit(card)
         self.pw_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pw_input.setPlaceholderText("Password…")
+        self.pw_input.setPlaceholderText("Master or App Lock password…")
+        self.pw_input.setAccessibleName("App Lock password")
         self.pw_input.setFixedHeight(44)
         self.pw_input.returnPressed.connect(self._verify)
         card_layout.addWidget(self.pw_input)
@@ -159,18 +159,17 @@ class AppLockPrompt(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(12)
+        btn_layout.setSpacing(8)
 
-        cancel_btn = QPushButton("Block & Terminate")
-        cancel_btn.setProperty("danger", True)
-        cancel_btn.setFixedHeight(42)
+        cancel_btn = DangerButton("Block & Terminate", parent=card)
+        cancel_btn.setFixedHeight(40)
         cancel_btn.clicked.connect(self._terminate)
-        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(cancel_btn, 1)
 
-        unlock_btn = GlowButton("Unlock App")
-        unlock_btn.setFixedHeight(42)
+        unlock_btn = PrimaryButton("Unlock App", parent=card)
+        unlock_btn.setFixedHeight(40)
         unlock_btn.clicked.connect(self._verify)
-        btn_layout.addWidget(unlock_btn)
+        btn_layout.addWidget(unlock_btn, 1)
 
         card_layout.addLayout(btn_layout)
 
@@ -192,7 +191,7 @@ class AppLockPrompt(QDialog):
             self.lockout.check_lockout()
         except Exception:
             remaining = self.lockout.get_lockout_seconds()
-            self.error_lbl.show_text(f"Too many failed attempts. Wait {remaining:.0f}s.", Colors.DANGER)
+            self.error_lbl.show_text(f"Too many failed attempts. Wait {remaining:.0f}s.", Tokens.colors.danger)
             self.pw_input.setEnabled(False)
             if self.on_lockout_triggered:
                 try:
@@ -227,7 +226,7 @@ class AppLockPrompt(QDialog):
                 remaining = self.lockout.get_lockout_seconds()
                 self.error_lbl.show_text(
                     f"Too many failed attempts. Wait {remaining:.0f}s. Terminating app…",
-                    Colors.DANGER,
+                    Tokens.colors.danger,
                 )
                 self.pw_input.setEnabled(False)
                 if self.on_lockout_triggered:
@@ -273,7 +272,7 @@ class AppLockPrompt(QDialog):
                     self.keystore.self_destruct()
                     self.error_lbl.show_text(
                         "Vault self-destruct activated after 20 failed attempts.",
-                        Colors.DANGER,
+                        Tokens.colors.danger,
                     )
                     self.pw_input.setEnabled(False)
                     if self.on_lockout_triggered:
@@ -289,7 +288,7 @@ class AppLockPrompt(QDialog):
             if remaining > 0:
                 self.error_lbl.show_text(
                     f"Too many failed attempts. Wait {remaining:.0f}s. Terminating app…",
-                    Colors.DANGER,
+                    Tokens.colors.danger,
                 )
                 self.pw_input.setEnabled(False)
                 if self.on_lockout_triggered:
@@ -301,11 +300,11 @@ class AppLockPrompt(QDialog):
             else:
                 rem_local = self.max_attempts - self.attempts
                 if rem_local <= 0:
-                    self.error_lbl.show_text("Too many failed attempts. Terminating app…", Colors.DANGER)
+                    self.error_lbl.show_text("Too many failed attempts. Terminating app…", Tokens.colors.danger)
                     self.pw_input.setEnabled(False)
                     QTimer.singleShot(1200, self._terminate)
                 else:
-                    self.error_lbl.show_text(f"Incorrect password ({rem_local} attempts remaining)", Colors.DANGER)
+                    self.error_lbl.show_text(f"Incorrect password ({rem_local} attempts remaining)", Tokens.colors.danger)
                     self.pw_input.clear()
                     self.pw_input.setFocus()
 

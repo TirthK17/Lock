@@ -52,7 +52,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
-    QRadialGradient,
 )
 from PySide6.QtMultimedia import (
     QAudioOutput,
@@ -89,6 +88,7 @@ from ..core.session import get_session
 from ..system.lock_controller import get_lock_controller
 from ..system.screenshot import apply_screenshot_protection
 from . import icons
+from .design_system import DARK_PALETTE
 
 logger = logging.getLogger(__name__)
 
@@ -97,21 +97,21 @@ logger = logging.getLogger(__name__)
 
 
 class VideoColors:
-    ACCENT_LIGHT = "#A998FF"
-    ACCENT_MID = "#7B8EFF"
-    ACCENT_HOVER = "#B7C2FF"
-    ACCENT_RING = "#92A2FF"
-    BRAND = "#8B9CFF"
-    BG_DARKEST = "#07080C"
-    BG_MID = "#0B0D12"
-    BG_SURFACE = "#10121A"
-    TEXT_PRIMARY = "#F4F7FF"
-    TEXT_SECONDARY = "#CBD5E1"
-    TEXT_MUTED = "#8896AE"
-    TEXT_ROW = "#E2E8F4"
-    TEXT_BRIGHT = "#EEF2FF"
-    WHITE = "#FFFFFF"
-    DANGER = "#FF8A98"
+    ACCENT_LIGHT = DARK_PALETTE.accent_hover
+    ACCENT_MID = DARK_PALETTE.accent
+    ACCENT_HOVER = DARK_PALETTE.accent_hover
+    ACCENT_RING = DARK_PALETTE.accent
+    BRAND = DARK_PALETTE.accent
+    BG_DARKEST = DARK_PALETTE.bg
+    BG_MID = DARK_PALETTE.bg_secondary
+    BG_SURFACE = DARK_PALETTE.card
+    TEXT_PRIMARY = DARK_PALETTE.text
+    TEXT_SECONDARY = DARK_PALETTE.text_secondary
+    TEXT_MUTED = DARK_PALETTE.text_muted
+    TEXT_ROW = DARK_PALETTE.text
+    TEXT_BRIGHT = DARK_PALETTE.white
+    WHITE = DARK_PALETTE.white
+    DANGER = DARK_PALETTE.danger
 
 
 # ─── Formatting & Metadata Helpers ────────────────────────────────────────────
@@ -780,21 +780,12 @@ class _TimelineScrubber(QWidget):
         thumb_x = pad + fill_w
 
         if fill_w > 0.5:
-            grad = QLinearGradient(pad, cy, thumb_x, cy)
-            grad.setColorAt(0.0, QColor(VideoColors.ACCENT_MID))
-            grad.setColorAt(1.0, QColor(VideoColors.ACCENT_LIGHT))
-            painter.setBrush(QBrush(grad))
+            painter.setBrush(QColor(VideoColors.ACCENT_MID))
             painter.drawRoundedRect(QRectF(pad, top, fill_w, th), th / 2.0, th / 2.0)
 
-        # Subtle glowing circular thumb
-        thumb_r = 7.0 if (self._hovered or self._dragging) else 5.5
-        glow = QRadialGradient(thumb_x, cy, thumb_r + 6.0)
-        glow.setColorAt(0.0, QColor(169, 152, 255, 130 if (self._hovered or self._dragging) else 85))
-        glow.setColorAt(1.0, QColor(169, 152, 255, 0))
-        painter.setBrush(QBrush(glow))
-        painter.drawEllipse(QPointF(thumb_x, cy), thumb_r + 6.0, thumb_r + 6.0)
-
-        painter.setBrush(QColor(250, 252, 255))
+        # Crisp circular thumb (flat, no neon glow)
+        thumb_r = 6.5 if (self._hovered or self._dragging) else 5.0
+        painter.setBrush(QColor(VideoColors.WHITE))
         painter.drawEllipse(QPointF(thumb_x, cy), thumb_r, thumb_r)
 
 
@@ -876,13 +867,10 @@ class _VolumeSliderTrack(QWidget):
         ratio = self._value / 100.0
         fill_w = usable * ratio
         if fill_w > 0.5:
-            grad = QLinearGradient(pad, cy, pad + fill_w, cy)
-            grad.setColorAt(0.0, QColor(VideoColors.ACCENT_MID))
-            grad.setColorAt(1.0, QColor(VideoColors.ACCENT_LIGHT))
-            painter.setBrush(QBrush(grad))
+            painter.setBrush(QColor(VideoColors.ACCENT_MID))
             painter.drawRoundedRect(QRectF(pad, top, fill_w, th), 2.0, 2.0)
 
-        painter.setBrush(QColor(248, 250, 255))
+        painter.setBrush(QColor(VideoColors.WHITE))
         painter.drawEllipse(QPointF(pad + fill_w, cy), 5.0, 5.0)
 
 
@@ -1095,11 +1083,8 @@ class _VideoCanvas(QWidget):
                 if not img.isNull():
                     painter.drawImage(target, img)
         elif self._audio_only:
-            # Subtle ambient backdrop for audio tracks inside video player
-            grad = QRadialGradient(rect.center(), max(rect.width(), rect.height()) * 0.5)
-            grad.setColorAt(0.0, QColor(139, 156, 255, 28))
-            grad.setColorAt(1.0, QColor(7, 8, 12, 0))
-            painter.fillRect(rect, QBrush(grad))
+            # Flat calm surface for audio tracks inside video player
+            painter.fillRect(rect, QColor(VideoColors.BG_SURFACE))
             icon_px = icons.get_pixmap("audio_wave", color=VideoColors.BRAND, size=54)
             painter.drawPixmap(
                 QPointF((self.width() - 54) / 2.0, (self.height() - 54) / 2.0 - 16),
@@ -1708,26 +1693,16 @@ class _ShellContainer(QWidget):
 
         rect = QRectF(0.0, 0.0, float(self.width()), float(self.height()))
         path = QPainterPath()
-        radius = 0.0 if self._fullscreen else 22.0
+        radius = 0.0 if self._fullscreen else 16.0
         if radius > 0.0:
             path.addRoundedRect(rect, radius, radius)
         else:
             path.addRect(rect)
 
-        base_grad = QLinearGradient(0.0, 0.0, float(self.width()), float(self.height()))
-        base_grad.setColorAt(0.0, QColor(VideoColors.BG_DARKEST))
-        base_grad.setColorAt(0.55, QColor(VideoColors.BG_MID))
-        base_grad.setColorAt(1.0, QColor(VideoColors.BG_SURFACE))
-        painter.fillPath(path, QBrush(base_grad))
-
-        # Very faint atmospheric radial glow behind hero
-        ambient = QRadialGradient(float(self.width()) * 0.25, float(self.height()) * 0.15, max(self.width(), self.height()) * 0.75)
-        ambient.setColorAt(0.0, QColor(120, 134, 210, 18))
-        ambient.setColorAt(1.0, QColor(11, 13, 18, 0))
-        painter.fillPath(path, QBrush(ambient))
+        painter.fillPath(path, QColor(VideoColors.BG_DARKEST))
 
         if not self._fullscreen:
-            painter.setPen(QPen(QColor(255, 255, 255, 28), 1.0))
+            painter.setPen(QPen(QColor(255, 255, 255, 18), 1.0))
             painter.drawRoundedRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
 
 

@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -45,7 +44,6 @@ from ..core.vault import infer_mime_type
 from ..system.lock_controller import get_lock_controller
 from ..system.screenshot import apply_screenshot_protection
 from .theme import Colors
-from .widgets import GlowButton
 
 logger = logging.getLogger(__name__)
 
@@ -182,73 +180,88 @@ class GalleryViewer(QDialog):
         self._cached[fid] = data
 
     def _build_ui(self) -> None:
+        from .components import IconButton, PrimaryButton, SecondaryButton
+        from .design_system import Tokens
+
+        p = Tokens.colors
+        self.setMouseTracking(True)
+
+        self._controls_hide_timer = QTimer(self)
+        self._controls_hide_timer.setSingleShot(True)
+        self._controls_hide_timer.setInterval(2000)
+        self._controls_hide_timer.timeout.connect(self._hide_overlay_bars)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         # ── Top toolbar ──
-        toolbar = QWidget()
-        toolbar.setFixedHeight(50)
-        toolbar.setStyleSheet(f"background: {Colors.GLASS}; border-bottom: 1px solid {Colors.BORDER};")
-        tb_layout = QHBoxLayout(toolbar)
+        self._top_bar = QWidget(self)
+        self._top_bar.setFixedHeight(48)
+        self._top_bar.setStyleSheet(f"background-color: {p.bg_secondary}; border-bottom: 1px solid {p.border};")
+        tb_layout = QHBoxLayout(self._top_bar)
         tb_layout.setContentsMargins(16, 0, 16, 0)
+        tb_layout.setSpacing(6)
 
-        self._counter_lbl = QLabel("1 / 1")
-        self._counter_lbl.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; background: transparent;")
+        self._counter_lbl = QLabel("1 / 1", self._top_bar)
+        self._counter_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
+        self._counter_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
+        tb_layout.addWidget(self._counter_lbl)
+        tb_layout.addStretch()
 
-        close_btn = QPushButton("✕ Close")
-        close_btn.setProperty("flat", True)
-        close_btn.clicked.connect(self.accept)
-
-        self._slideshow_btn = QPushButton("▶ Slideshow")
-        self._slideshow_btn.setProperty("flat", True)
-        self._slideshow_btn.clicked.connect(self._toggle_slideshow)
-
-        zoom_in = QPushButton("🔍+")
-        zoom_in.setProperty("flat", True)
-        zoom_in.clicked.connect(lambda: self._zoom(1.1))
-
-        zoom_out = QPushButton("🔍-")
-        zoom_out.setProperty("flat", True)
+        zoom_out = IconButton("zoom_out", tooltip="Zoom out", size=32, icon_size=16, parent=self._top_bar)
         zoom_out.clicked.connect(lambda: self._zoom(0.9))
 
-        reset_zoom = QPushButton("⤢ Fit")
-        reset_zoom.setProperty("flat", True)
+        reset_zoom = SecondaryButton("Fit", icon_name="maximize", parent=self._top_bar)
+        reset_zoom.setFixedHeight(32)
         reset_zoom.clicked.connect(self._fit_to_window)
 
-        for w in [self._counter_lbl]:
-            tb_layout.addWidget(w)
-        tb_layout.addStretch()
-        for btn in [zoom_out, reset_zoom, zoom_in, self._slideshow_btn, close_btn]:
+        zoom_in = IconButton("zoom_in", tooltip="Zoom in", size=32, icon_size=16, parent=self._top_bar)
+        zoom_in.clicked.connect(lambda: self._zoom(1.1))
+
+        rotate_btn = IconButton("rotate_cw", tooltip="Rotate 90°", size=32, icon_size=16, parent=self._top_bar)
+        rotate_btn.clicked.connect(self._rotate_90)
+
+        self._slideshow_btn = SecondaryButton("Slideshow", icon_name="play", parent=self._top_bar)
+        self._slideshow_btn.setFixedHeight(32)
+        self._slideshow_btn.clicked.connect(self._toggle_slideshow)
+
+        close_btn = IconButton("x", tooltip="Close gallery (Esc)", size=32, icon_size=16, parent=self._top_bar)
+        close_btn.clicked.connect(self.accept)
+
+        for btn in (zoom_out, reset_zoom, zoom_in, rotate_btn, self._slideshow_btn, close_btn):
             tb_layout.addWidget(btn)
 
         # ── Image area ──
-        self._img_scroll = QScrollArea()
+        self._img_scroll = QScrollArea(self)
         self._img_scroll.setFrameShape(self._img_scroll.Shape.NoFrame)
         self._img_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._img_scroll.setStyleSheet(f"background: {Colors.BG_DARKEST};")
+        self._img_scroll.setStyleSheet(f"background-color: {p.bg};")
+        self._img_scroll.setMouseTracking(True)
         self._img_lbl = ZoomableImageLabel()
         self._img_scroll.setWidget(self._img_lbl)
         self._img_scroll.setWidgetResizable(False)
 
         # ── Bottom navigation ──
-        nav = QWidget()
-        nav.setFixedHeight(60)
-        nav.setStyleSheet(f"background: {Colors.GLASS}; border-top: 1px solid {Colors.BORDER};")
-        nav_layout = QHBoxLayout(nav)
-        nav_layout.setContentsMargins(20, 0, 20, 0)
+        self._bottom_nav = QWidget(self)
+        self._bottom_nav.setFixedHeight(56)
+        self._bottom_nav.setStyleSheet(f"background-color: {p.bg_secondary}; border-top: 1px solid {p.border};")
+        nav_layout = QHBoxLayout(self._bottom_nav)
+        nav_layout.setContentsMargins(16, 0, 16, 0)
+        nav_layout.setSpacing(12)
 
-        prev_btn = GlowButton("← Previous")
-        prev_btn.setFixedWidth(130)
+        prev_btn = SecondaryButton("Previous", icon_name="chevron_left", parent=self._bottom_nav)
+        prev_btn.setFixedHeight(34)
         prev_btn.clicked.connect(self._prev)
 
-        next_btn = GlowButton("Next →")
-        next_btn.setFixedWidth(130)
+        next_btn = PrimaryButton("Next", icon_name="chevron_right", parent=self._bottom_nav)
+        next_btn.setFixedHeight(34)
         next_btn.clicked.connect(self._next)
 
-        self._name_lbl = QLabel("")
+        self._name_lbl = QLabel("", self._bottom_nav)
+        self._name_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_LABEL))
         self._name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._name_lbl.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; background: transparent;")
+        self._name_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
 
         nav_layout.addWidget(prev_btn)
         nav_layout.addStretch()
@@ -256,15 +269,53 @@ class GalleryViewer(QDialog):
         nav_layout.addStretch()
         nav_layout.addWidget(next_btn)
 
-        layout.addWidget(toolbar)
+        layout.addWidget(self._top_bar)
         layout.addWidget(self._img_scroll, 1)
-        layout.addWidget(nav)
+        layout.addWidget(self._bottom_nav)
 
         # Keyboard shortcuts
         QShortcut(QKeySequence(Qt.Key.Key_Left), self, self._prev)
         QShortcut(QKeySequence(Qt.Key.Key_Right), self, self._next)
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.accept)
         QShortcut(QKeySequence("Space"), self, self._toggle_slideshow)
+        self._controls_hide_timer.start()
+
+    def _wake_overlay_bars(self) -> None:
+        if hasattr(self, "_top_bar"):
+            self._top_bar.show()
+        if hasattr(self, "_bottom_nav"):
+            self._bottom_nav.show()
+        if hasattr(self, "_controls_hide_timer"):
+            self._controls_hide_timer.start()
+
+    def _hide_overlay_bars(self) -> None:
+        if self._cleaned_up:
+            return
+        top_hover = hasattr(self, "_top_bar") and self._top_bar.underMouse()
+        bot_hover = hasattr(self, "_bottom_nav") and self._bottom_nav.underMouse()
+        if top_hover or bot_hover:
+            self._controls_hide_timer.start()
+            return
+        if hasattr(self, "_top_bar"):
+            self._top_bar.hide()
+        if hasattr(self, "_bottom_nav"):
+            self._bottom_nav.hide()
+
+    def mouseMoveEvent(self, event) -> None:
+        self._wake_overlay_bars()
+        super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        self._wake_overlay_bars()
+        super().keyPressEvent(event)
+
+    def _rotate_90(self) -> None:
+        self._wake_overlay_bars()
+        if self._img_lbl._original_pixmap and not self._img_lbl._original_pixmap.isNull():
+            from PySide6.QtGui import QTransform
+            rotated = self._img_lbl._original_pixmap.transformed(QTransform().rotate(90), Qt.TransformationMode.SmoothTransformation)
+            self._img_lbl.set_pixmap(rotated)
+            self._fit_to_window()
 
     # ── Navigation ─────────────────────────────────────────────────────────
 
@@ -379,17 +430,21 @@ class GalleryViewer(QDialog):
     def _toggle_slideshow(self) -> None:
         if self._slideshow_timer and self._slideshow_timer.isActive():
             self._slideshow_timer.stop()
-            self._slideshow_btn.setText("▶ Slideshow")
+            self._slideshow_btn.set_icon_name("play")
+            self._slideshow_btn.setText("Slideshow")
         else:
             self._slideshow_timer = QTimer(self)
             self._slideshow_timer.timeout.connect(self._next)
             self._slideshow_timer.start(4000)
-            self._slideshow_btn.setText("⏹ Stop Slideshow")
+            self._slideshow_btn.set_icon_name("pause")
+            self._slideshow_btn.setText("Pause")
 
     def _cleanup(self) -> None:
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        if hasattr(self, "_controls_hide_timer") and self._controls_hide_timer.isActive():
+            self._controls_hide_timer.stop()
         if self._slideshow_timer and self._slideshow_timer.isActive():
             self._slideshow_timer.stop()
             self._slideshow_timer = None

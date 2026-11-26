@@ -19,16 +19,13 @@ from typing import Callable, Optional
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
+    QApplication,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
-    QMessageBox,
-    QPushButton,
+    QListWidget,
+    QListWidgetItem,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -39,9 +36,18 @@ from ..core.keystore import Keystore
 from ..core.lockout import LockoutManager, make_lockout_signing_key
 from ..core.password_policy import validate_password
 from ..core.session import get_session
-from . import icons
-from .theme import Colors
-from .widgets import GlowButton, ProgressOverlay, SmoothScrollArea
+from .components import (
+    Card,
+    DangerButton,
+    DialogShell,
+    ListRow,
+    PrimaryButton,
+    SecondaryButton,
+    SectionHeader,
+    Toggle,
+)
+from .design_system import ThemePalette, Tokens
+from .widgets import ProgressOverlay, SmoothScrollArea
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +73,7 @@ class _SettingsWorker(QThread):
 
 
 class SettingsUI(QWidget):
-    """Settings view embedded in the main dashboard."""
+    """Settings view embedded in the main dashboard (left category rail + right cards)."""
 
     settings_updated = Signal()
     lock_requested = Signal()
@@ -85,6 +91,7 @@ class SettingsUI(QWidget):
         self.vault = vault
         self.keystore = keystore
         self._worker: Optional[_SettingsWorker] = None
+        self._section_cards: list[tuple[str, Card]] = []
 
         if settings_store is not None:
             self.settings = settings_store
@@ -100,7 +107,52 @@ class SettingsUI(QWidget):
             self.settings = SettingsStore(self.vault.vault_dir, signing_key)
 
         self._build_ui()
+        Tokens.subscribe(self._on_theme)
+        self.destroyed.connect(self._cleanup_sub)
+        self._apply_theme()
         self._load_stored_settings()
+
+    def _cleanup_sub(self) -> None:
+        Tokens.unsubscribe(self._on_theme)
+
+    def _on_theme(self, _pal: ThemePalette) -> None:
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        p = Tokens.colors
+        self._header_lbl.setStyleSheet(f"color: {p.text}; background: transparent;")
+        self._cat_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {p.bg_secondary};
+                border: 1px solid {p.border};
+                border-radius: {Tokens.radius.CARD}px;
+                padding: 6px;
+                outline: none;
+            }}
+            QListWidget::item {{
+                color: {p.text_secondary};
+                padding: 8px 12px;
+                border-radius: {Tokens.radius.CONTROL}px;
+            }}
+            QListWidget::item:hover {{
+                background-color: {p.hover_fill};
+                color: {p.text};
+            }}
+            QListWidget::item:selected {{
+                background-color: {p.accent_tint};
+                color: {p.text};
+                border: 1px solid {p.accent_border};
+            }}
+        """)
+        self._danger_card.setStyleSheet(f"""
+            #DangerZoneCard {{
+                background-color: {p.card};
+                border: 1px solid {p.danger_border};
+                border-radius: {Tokens.radius.CARD}px;
+            }}
+        """)
+        self._destruct_desc.setStyleSheet(f"color: {p.danger}; background: transparent;")
+        self._decoy_desc.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
 
     def _on_setting_changed(self, key: str, val) -> None:
         self.settings.set(key, val)
@@ -119,7 +171,6 @@ class SettingsUI(QWidget):
         self.destruct_check.setChecked(bool(self.settings.get("self_destruct_enabled", False)))
         self.destruct_check.blockSignals(False)
 
-        # Wire update events
         self.idle_spin.valueChanged.connect(lambda v: self._on_setting_changed("idle_timeout_minutes", v))
         self.lock_minimize_check.toggled.connect(lambda c: self._on_setting_changed("lock_on_minimize", c))
         self.screen_protect_check.toggled.connect(lambda c: self._on_setting_changed("screenshot_protection", c))
@@ -132,141 +183,204 @@ class SettingsUI(QWidget):
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(28, 24, 28, 24)
+        outer.setContentsMargins(24, 24, 24, 24)
         outer.setSpacing(16)
 
-        # Title
-        header = QLabel("Vault Settings")
-        header.setFont(QFont("Segoe UI Variable", 20, QFont.Weight.Bold))
-        header.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
-        outer.addWidget(header)
+        self._header_lbl = QLabel("Settings", self)
+        self._header_lbl.setFont(Tokens.type.font(Tokens.type.PAGE_TITLE, Tokens.type.WEIGHT_TITLE))
+        outer.addWidget(self._header_lbl)
 
-        # Scrollable settings area
-        scroll = SmoothScrollArea()
+        body_split = QHBoxLayout()
+        body_split.setContentsMargins(0, 0, 0, 0)
+        body_split.setSpacing(16)
+
+        # Left Category Rail
+        self._cat_list = QListWidget(self)
+        self._cat_list.setFixedWidth(180)
+        self._cat_list.setAccessibleName("Settings categories")
+        body_split.addWidget(self._cat_list, 0, Qt.AlignmentFlag.AlignTop)
+
+        # Right Cards Scroll Area
+        self._scroll = SmoothScrollArea()
         container = QWidget()
         container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 16, 0)
-        layout.setSpacing(20)
+        layout.setContentsMargins(0, 0, 12, 0)
+        layout.setSpacing(16)
 
         # ── 1. Security & Auto-Lock ──
-        sec_card, sec_layout = self._create_card("Security & Auto-Lock", "lock")
+        sec_card, sec_layout = self._create_card("Security & Auto-Lock")
 
-        # Idle timeout row
-        idle_row = QHBoxLayout()
-        idle_lbl = QLabel("Auto-lock after user inactivity (minutes):")
-        idle_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
-        self.idle_spin = QSpinBox()
+        self.idle_spin = QSpinBox(sec_card)
         self.idle_spin.setRange(1, 120)
         self.idle_spin.setValue(5)
-        self.idle_spin.setFixedWidth(70)
-        idle_row.addWidget(idle_lbl)
-        idle_row.addStretch(1)
-        idle_row.addWidget(self.idle_spin)
-        sec_layout.addLayout(idle_row)
+        self.idle_spin.setFixedWidth(76)
+        self.idle_spin.setAccessibleName("Auto-lock inactivity timeout minutes")
+        sec_layout.addWidget(
+            ListRow(
+                "Inactivity timeout",
+                "Automatically lock the vault after N minutes with no input.",
+                self.idle_spin,
+                parent=sec_card,
+            )
+        )
 
-        self.lock_minimize_check = QCheckBox("Lock vault immediately when window is minimized")
-        self.lock_minimize_check.setChecked(True)
-        sec_layout.addWidget(self.lock_minimize_check)
+        self.lock_minimize_check = Toggle(checked=True, parent=sec_card)
+        self.lock_minimize_check.setAccessibleName("Lock vault when minimized")
+        sec_layout.addWidget(
+            ListRow(
+                "Lock when minimized",
+                "Zero keys and lock immediately when the main window minimizes.",
+                self.lock_minimize_check,
+                parent=sec_card,
+            )
+        )
 
-        self.screen_protect_check = QCheckBox("Block screenshots and screen recorders (WDA_EXCLUDEFROMCAPTURE)")
-        self.screen_protect_check.setChecked(True)
-        sec_layout.addWidget(self.screen_protect_check)
+        self.screen_protect_check = Toggle(checked=True, parent=sec_card)
+        self.screen_protect_check.setAccessibleName("Block screenshots and screen recorders")
+        sec_layout.addWidget(
+            ListRow(
+                "Screenshot protection",
+                "Block captures and screen recording via Windows Display Affinity.",
+                self.screen_protect_check,
+                parent=sec_card,
+            )
+        )
 
-        self.clipboard_wipe_check = QCheckBox("Automatically clear clipboard 30 seconds after copying")
-        self.clipboard_wipe_check.setChecked(True)
-        sec_layout.addWidget(self.clipboard_wipe_check)
+        self.clipboard_wipe_check = Toggle(checked=True, parent=sec_card)
+        self.clipboard_wipe_check.setAccessibleName("Clear clipboard after 30 seconds")
+        sec_layout.addWidget(
+            ListRow(
+                "Auto-clear clipboard",
+                "Erase sensitive copied text 30 seconds after copying.",
+                self.clipboard_wipe_check,
+                parent=sec_card,
+            )
+        )
 
-        self.webcam_check = QCheckBox("Capture webcam photo on failed login attempts (DPAPI encrypted)")
-        self.webcam_check.setChecked(False)
-        sec_layout.addWidget(self.webcam_check)
-
+        self.webcam_check = Toggle(checked=False, parent=sec_card)
+        self.webcam_check.setAccessibleName("Capture webcam photo on failed login")
+        sec_layout.addWidget(
+            ListRow(
+                "Intruder webcam capture",
+                "Encrypt a webcam snapshot via DPAPI after failed unlock attempts.",
+                self.webcam_check,
+                parent=sec_card,
+            )
+        )
         layout.addWidget(sec_card)
+        self._register_section("Security & Auto-Lock", sec_card)
 
         # ── 2. Stealth & Disguise ──
-        stealth_card, stealth_layout = self._create_card("Stealth & Camouflage", "calculator")
+        stealth_card, stealth_layout = self._create_card("Stealth & Disguise")
 
-        self.calc_check = QCheckBox("Enable Calculator Disguise (secret PIN opens real vault)")
-        self.calc_check.setChecked(False)
-        stealth_layout.addWidget(self.calc_check)
+        self.calc_check = Toggle(checked=False, parent=stealth_card)
+        self.calc_check.setAccessibleName("Enable Calculator Disguise")
+        stealth_layout.addWidget(
+            ListRow(
+                "Calculator disguise",
+                "Show a working desktop calculator until the secret PIN + equals is entered.",
+                self.calc_check,
+                parent=stealth_card,
+            )
+        )
 
-        pin_row = QHBoxLayout()
-        pin_lbl = QLabel("Disguise Secret PIN:")
-        pin_lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
-        self.pin_input = QLineEdit("1337")
+        self.pin_input = QLineEdit("1337", stealth_card)
         self.pin_input.setFixedWidth(100)
-        pin_row.addWidget(pin_lbl)
-        pin_row.addWidget(self.pin_input)
-        pin_row.addStretch(1)
-        stealth_layout.addLayout(pin_row)
+        self.pin_input.setAccessibleName("Calculator disguise secret PIN")
+        stealth_layout.addWidget(
+            ListRow(
+                "Disguise secret PIN",
+                "Sequence typed before pressing '=' on the calculator screen.",
+                self.pin_input,
+                parent=stealth_card,
+            )
+        )
 
-        self.hide_taskbar_check = QCheckBox("Run silently in system tray only (hide from taskbar)")
-        self.hide_taskbar_check.setChecked(False)
-        stealth_layout.addWidget(self.hide_taskbar_check)
-
+        self.hide_taskbar_check = Toggle(checked=False, parent=stealth_card)
+        self.hide_taskbar_check.setAccessibleName("Run silently in system tray only")
+        stealth_layout.addWidget(
+            ListRow(
+                "Tray-only stealth mode",
+                "Hide from the Windows taskbar when minimized.",
+                self.hide_taskbar_check,
+                parent=stealth_card,
+            )
+        )
         layout.addWidget(stealth_card)
+        self._register_section("Stealth & Disguise", stealth_card)
 
         # ── 3. Decoy / Duress Vault ──
-        decoy_card, decoy_layout = self._create_card("Decoy / Duress Vault", "shield")
-
-        decoy_desc = QLabel(
-            "Configure a separate password that opens an empty decoy vault.\n"
-            "If forced to unlock your vault under duress, enter this password instead."
+        decoy_card, decoy_layout = self._create_card("Decoy & Duress")
+        self._decoy_desc = QLabel(
+            "Configure a separate password that opens an empty decoy vault if forced to unlock under duress.",
+            decoy_card,
         )
-        decoy_desc.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 12px; background: transparent;")
-        decoy_desc.setWordWrap(True)
-        decoy_layout.addWidget(decoy_desc)
+        self._decoy_desc.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        self._decoy_desc.setWordWrap(True)
+        decoy_layout.addWidget(self._decoy_desc)
 
-        setup_decoy_btn = QPushButton(" Configure Decoy Password")
-        setup_decoy_btn.setIcon(icons.get_icon("shield", color=Colors.TEXT_PRIMARY))
-        setup_decoy_btn.setFixedWidth(220)
+        setup_decoy_btn = SecondaryButton("Configure Decoy Password", icon_name="shield", parent=decoy_card)
+        setup_decoy_btn.setFixedWidth(232)
         setup_decoy_btn.clicked.connect(self._setup_decoy_dialog)
         decoy_layout.addWidget(setup_decoy_btn)
-
         layout.addWidget(decoy_card)
+        self._register_section("Decoy & Duress", decoy_card)
 
-        # ── 4. Key Management ──
-        key_card, key_layout = self._create_card("Password & Key Management", "key")
+        # ── 4. Password & Key Management ──
+        key_card, key_layout = self._create_card("Keys & Speed")
 
-        change_pw_btn = QPushButton(" Change Master Password")
-        change_pw_btn.setIcon(icons.get_icon("key", color=Colors.TEXT_PRIMARY))
-        change_pw_btn.setFixedWidth(220)
+        change_pw_btn = SecondaryButton("Change Master Password", icon_name="key", parent=key_card)
         change_pw_btn.clicked.connect(self._change_password_dialog)
-        key_layout.addWidget(change_pw_btn)
+        key_layout.addWidget(
+            ListRow(
+                "Master password",
+                "Update your primary vault passphrase and re-wrap keystore credentials.",
+                change_pw_btn,
+                parent=key_card,
+            )
+        )
 
-        rotate_key_btn = QPushButton(" Rotate Master Key (Re-encrypt All)")
-        rotate_key_btn.setIcon(icons.get_icon("refresh", color=Colors.TEXT_PRIMARY))
-        rotate_key_btn.setFixedWidth(260)
-        rotate_key_btn.setProperty("ghost", True)
+        rotate_key_btn = SecondaryButton("Rotate Master Key", icon_name="refresh", parent=key_card)
         rotate_key_btn.clicked.connect(self._rotate_keys_dialog)
-        key_layout.addWidget(rotate_key_btn)
+        key_layout.addWidget(
+            ListRow(
+                "Rotate master key",
+                "Generate a new 256-bit master key and re-encrypt every vault file cleanly.",
+                rotate_key_btn,
+                parent=key_card,
+            )
+        )
 
-        optimize_speed_btn = QPushButton(" Optimize Unlock Speed (~0.25s)")
-        optimize_speed_btn.setIcon(icons.get_icon("shield_check", color=Colors.SUCCESS))
-        optimize_speed_btn.setFixedWidth(260)
+        optimize_speed_btn = SecondaryButton("Optimize (~0.25s)", icon_name="shield_check", parent=key_card)
         optimize_speed_btn.setToolTip(
             "Re-tunes Argon2id key derivation on this computer to unlock in ~0.25s "
             "while keeping OWASP-safe cryptographic strength (>=64 MiB)."
         )
         optimize_speed_btn.clicked.connect(self._optimize_unlock_speed_dialog)
-        key_layout.addWidget(optimize_speed_btn)
-
+        key_layout.addWidget(
+            ListRow(
+                "Unlock performance",
+                "Benchmark Argon2id derivation on this CPU to hit ~0.25s OWASP-safe unlock.",
+                optimize_speed_btn,
+                parent=key_card,
+            )
+        )
         layout.addWidget(key_card)
+        self._register_section("Keys & Speed", key_card)
 
-        # ── 5. Backup & Integrity ──
-        backup_card, backup_layout = self._create_card("Backup & Verification", "archive")
+        # ── 5. Backup & Verification ──
+        backup_card, backup_layout = self._create_card("Backup & Integrity")
 
         backup_btns = QHBoxLayout()
-        export_btn = GlowButton(" Export Encrypted Backup")
-        export_btn.setIcon(icons.get_icon("download", color=Colors.TEXT_PRIMARY, active_color=Colors.WHITE))
+        backup_btns.setSpacing(8)
+        export_btn = PrimaryButton("Export Backup", icon_name="download", parent=backup_card)
         export_btn.clicked.connect(self._export_backup)
 
-        restore_btn = QPushButton(" Restore from Backup")
-        restore_btn.setIcon(icons.get_icon("upload", color=Colors.TEXT_PRIMARY))
+        restore_btn = SecondaryButton("Restore Backup", icon_name="upload", parent=backup_card)
         restore_btn.clicked.connect(self._restore_backup)
 
-        verify_btn = QPushButton(" Verify Vault Integrity")
-        verify_btn.setIcon(icons.get_icon("shield_check", color=Colors.TEXT_PRIMARY))
+        verify_btn = SecondaryButton("Verify Integrity", icon_name="shield_check", parent=backup_card)
         verify_btn.clicked.connect(self._verify_vault)
 
         backup_btns.addWidget(export_btn)
@@ -274,86 +388,77 @@ class SettingsUI(QWidget):
         backup_btns.addWidget(verify_btn)
         backup_btns.addStretch(1)
         backup_layout.addLayout(backup_btns)
-
         layout.addWidget(backup_card)
+        self._register_section("Backup & Integrity", backup_card)
 
-        # ── 6. Self-Destruct ──
-        destruct_card, destruct_layout = self._create_card("Emergency Self-Destruct", "alert_triangle")
+        # ── 6. Danger Zone Card (at the bottom) ──
+        destruct_card = Card(container)
+        destruct_card.setObjectName("DangerZoneCard")
+        self._danger_card = destruct_card
+        destruct_layout = QVBoxLayout(destruct_card)
+        destruct_layout.setContentsMargins(16, 16, 16, 16)
+        destruct_layout.setSpacing(12)
+        destruct_layout.addWidget(SectionHeader("Danger Zone", destruct_card))
 
-        destruct_desc = QLabel(
-            "Permanently wipe Master Key wrapping after N failed unlock attempts or manually.\n"
-            "WARNING: Once wiped, all encrypted data is unreadable forever!"
+        self._destruct_desc = QLabel(
+            "Permanently overwrite Master Key wrapping after 20 failed unlock attempts or immediately. "
+            "Once wiped, encrypted vault data cannot be recovered.",
+            destruct_card,
         )
-        destruct_desc.setStyleSheet(f"color: {Colors.DANGER}; font-size: 12px; background: transparent;")
-        destruct_desc.setWordWrap(True)
-        destruct_layout.addWidget(destruct_desc)
+        self._destruct_desc.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        self._destruct_desc.setWordWrap(True)
+        destruct_layout.addWidget(self._destruct_desc)
 
-        self.destruct_check = QCheckBox("Enable permanent self-destruct after failed attempts")
-        self.destruct_check.setChecked(False)
-        destruct_layout.addWidget(self.destruct_check)
+        self.destruct_check = Toggle(checked=False, parent=destruct_card)
+        self.destruct_check.setAccessibleName("Enable permanent self-destruct after failed attempts")
+        destruct_layout.addWidget(
+            ListRow(
+                "Auto self-destruct",
+                "Wipe key slots automatically after 20 consecutive failed unlock attempts.",
+                self.destruct_check,
+                parent=destruct_card,
+            )
+        )
 
-        destruct_btn = QPushButton(" Destroy Vault Now (Emergency Wipe)")
-        destruct_btn.setIcon(icons.get_icon("alert_triangle", color=Colors.DANGER, active_color=Colors.WHITE))
-        destruct_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: rgba(255, 113, 131, 0.15);
-                color: {Colors.DANGER};
-                border: 1px solid {Colors.DANGER};
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.DANGER};
-                color: {Colors.WHITE};
-            }}
-        """)
-        destruct_btn.setFixedWidth(280)
+        destruct_btn = DangerButton("Destroy Vault Now", icon_name="alert_triangle", parent=destruct_card)
+        destruct_btn.setFixedWidth(210)
         destruct_btn.clicked.connect(self._confirm_self_destruct_dialog)
         destruct_layout.addWidget(destruct_btn)
 
         layout.addWidget(destruct_card)
+        layout.addStretch(1)
+        self._register_section("Danger Zone", destruct_card)
 
-        scroll.setWidget(container)
-        outer.addWidget(scroll, 1)
+        self._cat_list.setCurrentRow(0)
+        self._cat_list.currentRowChanged.connect(self._scroll_to_section)
 
-    def _create_card(self, title: str, icon_key: Optional[str] = None) -> tuple[QFrame, QVBoxLayout]:
-        card = QFrame()
+        self._scroll.setWidget(container)
+        body_split.addWidget(self._scroll, 1)
+        outer.addLayout(body_split, 1)
+
+    def _register_section(self, name: str, card: Card) -> None:
+        self._section_cards.append((name, card))
+        self._cat_list.addItem(QListWidgetItem(name))
+
+    def _scroll_to_section(self, idx: int) -> None:
+        if 0 <= idx < len(self._section_cards):
+            card = self._section_cards[idx][1]
+            self._scroll.ensureWidgetVisible(card, 0, 16)
+
+    def _create_card(self, title: str) -> tuple[Card, QVBoxLayout]:
+        card = Card(self)
         card.setObjectName("SettingsCard")
-        card.setStyleSheet(f"""
-            #SettingsCard {{
-                background-color: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 12px;
-                padding: 16px;
-            }}
-        """)
         lay = QVBoxLayout(card)
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(12)
-
-        header_row = QHBoxLayout()
-        header_row.setSpacing(8)
-        if icon_key:
-            icon_lbl = QLabel()
-            icon_lbl.setPixmap(icons.get_pixmap(icon_key, size=20, color=Colors.PRIMARY))
-            icon_lbl.setStyleSheet("background: transparent;")
-            header_row.addWidget(icon_lbl)
-
-        lbl = QLabel(title)
-        lbl.setFont(QFont("Segoe UI Variable", 14, QFont.Weight.Bold))
-        lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
-        header_row.addWidget(lbl)
-        header_row.addStretch()
-
-        lay.addLayout(header_row)
+        lay.addWidget(SectionHeader(title, card))
         return card, lay
 
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def _run_with_overlay(self, title: str, work_fn: Callable, on_done: Callable) -> None:
         overlay = ProgressOverlay(title, self)
-        overlay._cancel_btn.hide()  # backup/verify/rotate completes cleanly atomically
+        overlay._cancel_btn.hide()
         overlay.show()
 
         worker = _SettingsWorker(work_fn, self)
@@ -368,7 +473,7 @@ class SettingsUI(QWidget):
         def _err(msg: str) -> None:
             overlay.accept()
             self._worker = None
-            QMessageBox.critical(self, "Operation Failed", f"{msg} [ERR-SET-01]")
+            DialogShell.error(self, "Operation Failed", f"{msg} [ERR-SET-01]")
 
         worker.finished_result.connect(_finish)
         worker.failed.connect(_err)
@@ -376,15 +481,15 @@ class SettingsUI(QWidget):
 
     def _on_destruct_toggled(self, checked: bool) -> None:
         if checked:
-            reply = QMessageBox.warning(
+            confirmed = DialogShell.confirm(
                 self,
                 "Enable Auto Self-Destruct?",
                 "If enabled, after 20 consecutive failed unlock attempts all master key slots "
-                "will be permanently wiped and vault data will be UNRECOVERABLE.\n\n"
-                "Enable this setting?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                "will be permanently wiped and vault data will be UNRECOVERABLE.\n\nEnable this setting?",
+                confirm_text="Enable Auto Wipe",
+                danger=True,
             )
-            if reply != QMessageBox.StandardButton.Yes:
+            if not confirmed:
                 self.destruct_check.blockSignals(True)
                 self.destruct_check.setChecked(False)
                 self.destruct_check.blockSignals(False)
@@ -407,9 +512,13 @@ class SettingsUI(QWidget):
         def _done(res):
             ok, _msg = res
             if ok:
-                QMessageBox.information(self, "Backup Complete", "Encrypted backup created successfully.")
+                DialogShell.inform(self, "Backup Complete", "Encrypted backup created successfully.")
             else:
-                QMessageBox.critical(self, "Backup Error", "Failed to create encrypted backup. Please check destination permissions and try again. [ERR-BKP-01]")
+                DialogShell.error(
+                    self,
+                    "Backup Error",
+                    "Failed to create encrypted backup. Please check destination permissions and try again. [ERR-BKP-01]",
+                )
 
         self._run_with_overlay("Creating Encrypted Backup", _work, _done)
 
@@ -420,20 +529,22 @@ class SettingsUI(QWidget):
         if not file_path:
             return
 
-        reply = QMessageBox.warning(
+        confirmed = DialogShell.confirm(
             self,
             "Confirm Restore",
             "Restoring a backup will replace your current vault data (a .old snapshot will be kept).\nAre you sure you want to proceed?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            confirm_text="Continue",
+            danger=True,
         )
-        if reply != QMessageBox.StandardButton.Yes:
+        if not confirmed:
             return
 
-        pw, pw_ok = QInputDialog.getText(
+        pw, pw_ok = DialogShell.get_text(
             self,
             "Verify Backup Password",
             "Enter the backup archive's master password to verify integrity before restoring:",
-            QLineEdit.EchoMode.Password,
+            echo_mode=QLineEdit.EchoMode.Password,
+            confirm_text="Verify & Restore",
         )
         if not pw_ok:
             return
@@ -463,10 +574,14 @@ class SettingsUI(QWidget):
         def _done(res):
             ok, _msg = res
             if ok:
-                QMessageBox.information(self, "Restore Succeeded", "Vault restored. Please lock and re-login.")
+                DialogShell.inform(self, "Restore Succeeded", "Vault restored. Please lock and re-login.")
                 self.lock_requested.emit()
             else:
-                QMessageBox.critical(self, "Restore Error", "Failed to restore backup. Check your password and archive integrity, then try again. [ERR-RST-01]")
+                DialogShell.error(
+                    self,
+                    "Restore Error",
+                    "Failed to restore backup. Check your password and archive integrity, then try again. [ERR-RST-01]",
+                )
 
         self._run_with_overlay("Restoring Backup", _work, _done)
 
@@ -478,38 +593,43 @@ class SettingsUI(QWidget):
             total = len(results)
             failures = [fid for fid, (ok, _) in results.items() if not ok]
             if not failures:
-                QMessageBox.information(self, "Integrity Check", f"All {total} files verified successfully! No corruption found.")
+                DialogShell.inform(self, "Integrity Check", f"All {total} files verified successfully! No corruption found.")
             else:
-                QMessageBox.warning(self, "Corruption Detected", f"{len(failures)} out of {total} files failed integrity verification!")
+                DialogShell.warn(self, "Corruption Detected", f"{len(failures)} out of {total} files failed integrity verification!")
 
         self._run_with_overlay("Verifying Vault Integrity", _work, _done)
 
     def _change_password_dialog(self) -> None:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Change Master Password")
-        dlg.setFixedSize(420, 270)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(10)
+        dlg = DialogShell(
+            "Change Master Password",
+            "Re-wrap your vault keystore with a new strong password.",
+            icon_name="key",
+            parent=self,
+            min_width=400,
+        )
 
-        old_pw = QLineEdit()
+        old_pw = QLineEdit(dlg.body_widget)
         old_pw.setEchoMode(QLineEdit.EchoMode.Password)
         old_pw.setPlaceholderText("Current Password")
 
-        new_pw = QLineEdit()
+        new_pw = QLineEdit(dlg.body_widget)
         new_pw.setEchoMode(QLineEdit.EchoMode.Password)
         new_pw.setPlaceholderText("New Password (min 12 chars, mixed case + digit + symbol)")
 
-        confirm_pw = QLineEdit()
+        confirm_pw = QLineEdit(dlg.body_widget)
         confirm_pw.setEchoMode(QLineEdit.EchoMode.Password)
         confirm_pw.setPlaceholderText("Confirm New Password")
 
-        lay.addWidget(old_pw)
-        lay.addWidget(new_pw)
-        lay.addWidget(confirm_pw)
+        dlg.body_layout.addWidget(old_pw)
+        dlg.body_layout.addWidget(new_pw)
+        dlg.body_layout.addWidget(confirm_pw)
 
-        btn = GlowButton("Update Password")
+        cancel_btn = SecondaryButton("Cancel", parent=dlg)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn = PrimaryButton("Update Password", parent=dlg)
+        dlg.add_footer_button(cancel_btn)
+        dlg.add_footer_button(btn)
+
         active_worker: list[Optional[_SettingsWorker]] = [None]
 
         def _set_busy(busy: bool) -> None:
@@ -522,10 +642,10 @@ class SettingsUI(QWidget):
                 return
             ok_pw, pw_msg, _ = validate_password(new_pw.text())
             if not ok_pw:
-                QMessageBox.warning(dlg, "Weak Password", pw_msg)
+                DialogShell.warn(dlg, "Weak Password", pw_msg)
                 return
             if new_pw.text() != confirm_pw.text():
-                QMessageBox.warning(dlg, "Error", "New passwords do not match.")
+                DialogShell.warn(dlg, "Error", "New passwords do not match.")
                 return
             kf_path: Optional[str] = None
             try:
@@ -536,7 +656,7 @@ class SettingsUI(QWidget):
                         if not kf_path:
                             return
             except Exception:
-                QMessageBox.critical(dlg, "Error", "Could not read keystore configuration. [ERR-PW-01]")
+                DialogShell.error(dlg, "Error", "Could not read keystore configuration. [ERR-PW-01]")
                 return
 
             cur_pw_val = old_pw.text()
@@ -563,14 +683,14 @@ class SettingsUI(QWidget):
                 self.settings.rekey(sk)
                 LockoutManager(self.vault.vault_dir, sk).rekey(sk, reset_failures=True)
                 self.credentials_changed.emit()
-                QMessageBox.information(dlg, "Success", "Master password updated successfully.")
+                DialogShell.inform(dlg, "Success", "Master password updated successfully.")
                 dlg.accept()
 
             def _on_err(_msg: str) -> None:
                 active_worker[0] = None
                 worker.deleteLater()
                 _set_busy(False)
-                QMessageBox.critical(dlg, "Error", "Failed to change password. Check current credentials and try again. [ERR-PW-01]")
+                DialogShell.error(dlg, "Error", "Failed to change password. Check current credentials and try again. [ERR-PW-01]")
 
             worker.finished_result.connect(_on_ok, Qt.ConnectionType.QueuedConnection)
             worker.failed.connect(_on_err, Qt.ConnectionType.QueuedConnection)
@@ -578,28 +698,34 @@ class SettingsUI(QWidget):
 
         dlg.rejected.connect(lambda: active_worker[0].wait(3000) if active_worker[0] else None)
         btn.clicked.connect(_do_change)
-        lay.addWidget(btn)
         dlg.exec()
 
     def _setup_decoy_dialog(self) -> None:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Setup Decoy Password")
-        dlg.setFixedSize(380, 220)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
-        lay = QVBoxLayout(dlg)
+        dlg = DialogShell(
+            "Setup Decoy Password",
+            "Create a separate passphrase that opens an empty decoy vault.",
+            icon_name="shield",
+            parent=self,
+            min_width=380,
+        )
 
-        pw1 = QLineEdit()
+        pw1 = QLineEdit(dlg.body_widget)
         pw1.setEchoMode(QLineEdit.EchoMode.Password)
         pw1.setPlaceholderText("Decoy Password")
 
-        pw2 = QLineEdit()
+        pw2 = QLineEdit(dlg.body_widget)
         pw2.setEchoMode(QLineEdit.EchoMode.Password)
         pw2.setPlaceholderText("Confirm Decoy Password")
 
-        lay.addWidget(pw1)
-        lay.addWidget(pw2)
+        dlg.body_layout.addWidget(pw1)
+        dlg.body_layout.addWidget(pw2)
 
-        btn = GlowButton("Save Decoy Password")
+        cancel_btn = SecondaryButton("Cancel", parent=dlg)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn = PrimaryButton("Save Decoy Password", parent=dlg)
+        dlg.add_footer_button(cancel_btn)
+        dlg.add_footer_button(btn)
+
         active_worker: list[Optional[_SettingsWorker]] = [None]
 
         def _set_busy(busy: bool) -> None:
@@ -611,7 +737,7 @@ class SettingsUI(QWidget):
             if active_worker[0] is not None:
                 return
             if pw1.text() != pw2.text() or not pw1.text():
-                QMessageBox.warning(dlg, "Error", "Passwords must match and not be empty.")
+                DialogShell.warn(dlg, "Error", "Passwords must match and not be empty.")
                 return
             decoy_pw = pw1.text()
             _set_busy(True)
@@ -623,14 +749,14 @@ class SettingsUI(QWidget):
                 active_worker[0] = None
                 worker.deleteLater()
                 _set_busy(False)
-                QMessageBox.information(dlg, "Decoy Active", "Decoy password configured. Logging in with it opens a fake safe.")
+                DialogShell.inform(dlg, "Decoy Active", "Decoy password configured. Logging in with it opens a fake safe.")
                 dlg.accept()
 
             def _on_err(_msg: str) -> None:
                 active_worker[0] = None
                 worker.deleteLater()
                 _set_busy(False)
-                QMessageBox.critical(dlg, "Error", "Could not setup decoy password. Please try again. [ERR-DEC-01]")
+                DialogShell.error(dlg, "Error", "Could not setup decoy password. Please try again. [ERR-DEC-01]")
 
             worker.finished_result.connect(_on_ok, Qt.ConnectionType.QueuedConnection)
             worker.failed.connect(_on_err, Qt.ConnectionType.QueuedConnection)
@@ -638,33 +764,37 @@ class SettingsUI(QWidget):
 
         dlg.rejected.connect(lambda: active_worker[0].wait(3000) if active_worker[0] else None)
         btn.clicked.connect(_do_save)
-        lay.addWidget(btn)
         dlg.exec()
 
     def _optimize_unlock_speed_dialog(self) -> None:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Optimize Unlock Speed")
-        dlg.setFixedSize(440, 260)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(10)
+        dlg = DialogShell(
+            "Optimize Unlock Speed",
+            "Re-tune Argon2id key derivation to ~0.25s on this CPU (>=64 MiB OWASP-safe).",
+            icon_name="shield_check",
+            icon_color=Tokens.colors.success,
+            parent=self,
+            min_width=420,
+        )
 
         info = QLabel(
-            "Re-tunes Argon2id key derivation to unlock in ~0.25 seconds on this CPU "
-            "using OWASP-safe strength (>=64 MiB).\n\n"
-            "Note: If you use a Decoy Password, re-save it in Settings afterward so both login paths stay fast."
+            "Note: If you use a Decoy Password, re-save it in Settings afterward so both login paths stay fast.",
+            dlg.body_widget,
         )
         info.setWordWrap(True)
-        info.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 12px; background: transparent;")
-        lay.addWidget(info)
+        info.setProperty("role", "secondary")
+        dlg.body_layout.addWidget(info)
 
-        pw_edit = QLineEdit()
+        pw_edit = QLineEdit(dlg.body_widget)
         pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
         pw_edit.setPlaceholderText("Enter current Master Password to confirm")
-        lay.addWidget(pw_edit)
+        dlg.body_layout.addWidget(pw_edit)
 
-        btn = GlowButton("Optimize Speed Now")
+        cancel_btn = SecondaryButton("Cancel", parent=dlg)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn = PrimaryButton("Optimize Speed Now", parent=dlg)
+        dlg.add_footer_button(cancel_btn)
+        dlg.add_footer_button(btn)
+
         active_worker: list[Optional[_SettingsWorker]] = [None]
 
         def _set_busy(busy: bool) -> None:
@@ -677,7 +807,7 @@ class SettingsUI(QWidget):
                 return
             pw_val = pw_edit.text()
             if not pw_val:
-                QMessageBox.warning(dlg, "Password Required", "Please enter your current master password.")
+                DialogShell.warn(dlg, "Password Required", "Please enter your current master password.")
                 return
             kf_path: Optional[str] = None
             try:
@@ -688,7 +818,7 @@ class SettingsUI(QWidget):
                         if not kf_path:
                             return
             except Exception:
-                QMessageBox.critical(dlg, "Error", "Could not read keystore configuration. [ERR-OPT-01]")
+                DialogShell.error(dlg, "Error", "Could not read keystore configuration. [ERR-OPT-01]")
                 return
 
             _set_busy(True)
@@ -709,11 +839,11 @@ class SettingsUI(QWidget):
                 self.settings.rekey(sk)
                 LockoutManager(self.vault.vault_dir, sk).rekey(sk, reset_failures=True)
                 self.credentials_changed.emit()
-                QMessageBox.information(
+                DialogShell.inform(
                     dlg,
                     "Unlock Speed Optimized",
                     f"Vault key derivation updated cleanly (~0.25s target).\n"
-                    f"Memory: {new_params.memory_kib // 1024} MiB  •  Iterations: {new_params.time_cost}",
+                    f"Memory: {new_params.memory_kib // 1024} MiB · Iterations: {new_params.time_cost}",
                 )
                 dlg.accept()
 
@@ -721,7 +851,7 @@ class SettingsUI(QWidget):
                 active_worker[0] = None
                 worker.deleteLater()
                 _set_busy(False)
-                QMessageBox.critical(
+                DialogShell.error(
                     dlg,
                     "Optimization Failed",
                     "Incorrect master password or key file. No settings were changed. [ERR-OPT-02]",
@@ -733,15 +863,15 @@ class SettingsUI(QWidget):
 
         dlg.rejected.connect(lambda: active_worker[0].wait(3000) if active_worker[0] else None)
         btn.clicked.connect(_do_optimize)
-        lay.addWidget(btn)
         dlg.exec()
 
     def _rotate_keys_dialog(self) -> None:
-        pw, ok = QInputDialog.getText(
+        pw, ok = DialogShell.get_text(
             self,
             "Rotate Master Key",
             "Enter current master password to re-encrypt all files with a fresh Master Key:",
-            QLineEdit.EchoMode.Password,
+            echo_mode=QLineEdit.EchoMode.Password,
+            confirm_text="Rotate Keys",
         )
         if not (ok and pw):
             return
@@ -785,7 +915,7 @@ class SettingsUI(QWidget):
         def _done(res):
             status, payload = res
             if status == "auth_failed":
-                QMessageBox.critical(self, "Authentication Failed", "Incorrect master password or key file. [ERR-ROT-01]")
+                DialogShell.error(self, "Authentication Failed", "Incorrect master password or key file. [ERR-ROT-01]")
                 return
 
             success, _msg = payload
@@ -801,51 +931,40 @@ class SettingsUI(QWidget):
                 if rec_out:
                     self._show_rotated_recovery_dialog(rec_out[0])
                 else:
-                    QMessageBox.information(
+                    DialogShell.inform(
                         self,
                         "Success",
                         "Vault Master Key rotated and all files re-encrypted.\nPlease lock and log in again.",
                     )
                 self.lock_requested.emit()
             else:
-                QMessageBox.critical(self, "Error", "Key rotation failed. Your original vault remains intact. [ERR-ROT-02]")
+                DialogShell.error(self, "Error", "Key rotation failed. Your original vault remains intact. [ERR-ROT-02]")
 
         self._run_with_overlay("Rotating Keys & Re-encrypting", _work, _done)
 
     def _show_rotated_recovery_dialog(self, recovery_key: str) -> None:
-        from PySide6.QtWidgets import QApplication
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Save Your New Recovery Key")
-        dlg.setFixedSize(520, 290)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(24, 20, 24, 20)
-        lay.setSpacing(12)
-
-        info = QLabel(
-            "Your Vault Master Key has been rotated and all files were re-encrypted.\n"
-            "Save this NEW 256-bit Recovery Key now (the old recovery key is no longer valid):"
+        p = Tokens.colors
+        dlg = DialogShell(
+            "Save Your New Recovery Key",
+            "Store this new 256-bit key safely; your previous recovery key is no longer valid.",
+            icon_name="key",
+            parent=self,
+            min_width=480,
         )
-        info.setWordWrap(True)
-        info.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 12px; background: transparent;")
-        lay.addWidget(info)
 
-        key_lbl = QLabel(recovery_key)
+        key_lbl = QLabel(recovery_key, dlg.body_widget)
         key_lbl.setWordWrap(True)
         key_lbl.setFont(QFont("Cascadia Code, Consolas, Courier New", 11, QFont.Weight.Bold))
         key_lbl.setStyleSheet(
-            f"background: {Colors.BG_INPUT}; color: {Colors.ACCENT}; "
-            f"border: 1px solid {Colors.BORDER}; border-radius: 8px; padding: 12px;"
+            f"background-color: {p.input_bg}; color: {p.accent}; "
+            f"border: 1px solid {p.border}; border-radius: {Tokens.radius.CONTROL}px; padding: 12px;"
         )
-        lay.addWidget(key_lbl)
+        dlg.body_layout.addWidget(key_lbl)
 
-        btn_row = QHBoxLayout()
-        copy_btn = QPushButton(" Copy Key")
-        copy_btn.setIcon(icons.get_icon("copy", color=Colors.TEXT_PRIMARY))
+        copy_btn = SecondaryButton("Copy Key", icon_name="copy", parent=dlg)
         copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(recovery_key))
 
-        save_btn = QPushButton(" Save to File…")
-        save_btn.setIcon(icons.get_icon("download", color=Colors.TEXT_PRIMARY))
+        save_btn = SecondaryButton("Save to File…", icon_name="download", parent=dlg)
 
         def _save_to_file() -> None:
             path, _ = QFileDialog.getSaveFileName(
@@ -860,70 +979,63 @@ class SettingsUI(QWidget):
                         encoding="utf-8",
                     )
                 except Exception:
-                    QMessageBox.warning(dlg, "Save Error", "Could not save recovery key file. [ERR-ROT-03]")
+                    DialogShell.warn(dlg, "Save Error", "Could not save recovery key file. [ERR-ROT-03]")
 
         save_btn.clicked.connect(_save_to_file)
 
-        done_btn = GlowButton(" Done & Lock Vault")
+        done_btn = PrimaryButton("Done & Lock Vault", parent=dlg)
         done_btn.clicked.connect(dlg.accept)
 
-        btn_row.addWidget(copy_btn)
-        btn_row.addWidget(save_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(done_btn)
-        lay.addLayout(btn_row)
+        dlg.add_footer_button(copy_btn)
+        dlg.add_footer_button(save_btn)
+        dlg.add_footer_button(done_btn)
         dlg.exec()
 
-
     def _confirm_self_destruct_dialog(self) -> None:
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Confirm Emergency Self-Destruct")
-        dlg.setFixedSize(440, 260)
-        dlg.setStyleSheet(f"background: {Colors.BG_CARD}; color: {Colors.TEXT_PRIMARY};")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(20, 20, 20, 20)
-        lay.setSpacing(12)
+        p = Tokens.colors
+        dlg = DialogShell(
+            "Confirm Emergency Self-Destruct",
+            "All encrypted files will become permanently unreadable.",
+            icon_name="alert_triangle",
+            icon_color=p.danger,
+            parent=self,
+            min_width=420,
+        )
 
         warn_lbl = QLabel(
-            "⚠️ PERMANENT VAULT DESTRUCTION ⚠️\n\n"
-            "This will permanently and irrecoverably overwrite all cryptographic key slots "
-            "with random noise. All encrypted files will become unreadable forever.\n\n"
-            "To confirm, type 'DESTROY MY VAULT' below:"
+            "This permanently overwrites all cryptographic key slots with random noise.\n\n"
+            "To confirm, type 'DESTROY MY VAULT' below:",
+            dlg.body_widget,
         )
         warn_lbl.setWordWrap(True)
-        warn_lbl.setStyleSheet(f"color: {Colors.DANGER}; font-size: 12px; font-weight: bold;")
-        lay.addWidget(warn_lbl)
+        warn_lbl.setStyleSheet(f"color: {p.danger}; font-weight: 500;")
+        dlg.body_layout.addWidget(warn_lbl)
 
-        confirm_input = QLineEdit()
+        confirm_input = QLineEdit(dlg.body_widget)
         confirm_input.setPlaceholderText("DESTROY MY VAULT")
-        confirm_input.setStyleSheet(f"padding: 8px; border: 1px solid {Colors.DANGER}; border-radius: 6px;")
-        lay.addWidget(confirm_input)
+        confirm_input.setAccessibleName("Self-destruct confirmation text")
+        dlg.body_layout.addWidget(confirm_input)
 
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = SecondaryButton("Cancel", parent=dlg)
         cancel_btn.clicked.connect(dlg.reject)
 
-        destroy_btn = QPushButton("Permanently Wipe Keys")
-        destroy_btn.setStyleSheet(f"background-color: {Colors.DANGER}; color: {Colors.WHITE}; font-weight: bold; padding: 8px 16px; border-radius: 6px;")
+        destroy_btn = DangerButton("Permanently Wipe Keys", parent=dlg)
 
         def _do_wipe():
             if confirm_input.text().strip() != "DESTROY MY VAULT":
-                QMessageBox.warning(dlg, "Confirmation Failed", "You must type 'DESTROY MY VAULT' exactly to confirm.")
+                DialogShell.warn(dlg, "Confirmation Failed", "You must type 'DESTROY MY VAULT' exactly to confirm.")
                 return
             try:
                 self.keystore.self_destruct()
-                QMessageBox.critical(dlg, "Vault Destroyed", "All key material has been wiped. The vault is now permanently locked.")
+                DialogShell.error(dlg, "Vault Destroyed", "All key material has been wiped. The vault is now permanently locked.")
                 dlg.accept()
                 self.lock_requested.emit()
             except Exception:
-                QMessageBox.critical(dlg, "Error", "Self-destruct encountered an error. [ERR-DESTRUCT-01]")
+                DialogShell.error(dlg, "Error", "Self-destruct encountered an error. [ERR-DESTRUCT-01]")
 
         destroy_btn.clicked.connect(_do_wipe)
-        btn_row.addStretch(1)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(destroy_btn)
-        lay.addLayout(btn_row)
-
+        dlg.add_footer_button(cancel_btn)
+        dlg.add_footer_button(destroy_btn)
         dlg.exec()
 
 

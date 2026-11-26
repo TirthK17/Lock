@@ -21,24 +21,29 @@ from typing import Optional
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QFont
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFileDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QProgressBar,
-    QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from mylocker.app.ui.theme import Colors
-from mylocker.app.ui.widgets import FadeLabel, GlowButton, PasswordStrengthBar, SectionHeader
-
-from . import icons
+from mylocker.app.ui import icons
+from mylocker.app.ui.components import (
+    Card,
+    DialogShell,
+    PrimaryButton,
+    SecondaryButton,
+    SectionHeader,
+)
+from mylocker.app.ui.design_system import ThemePalette, Tokens
+from mylocker.app.ui.widgets import FadeLabel, PasswordStrengthBar
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +71,13 @@ class SetupWorker(QObject):
 
 
 class SetupWizard(QWidget):
-    """Multi-step setup wizard matching Phase 0 requirements."""
+    """Multi-step setup wizard with 5-step top progress indicator."""
 
     setup_complete = Signal(object)          # master_key (bytearray)
     vault_location_chosen = Signal(object)   # Path
     _bl_status_ready = Signal(bool, str)
+
+    _STEP_TITLES = ("Location", "Password", "Key File", "Encryption", "Recovery")
 
     def __init__(self, keystore, vault_dir_default: Path,
                  parent: Optional[QWidget] = None) -> None:
@@ -83,26 +90,53 @@ class SetupWizard(QWidget):
         self._verify_indices: list[int] = []
         self._master_key: Optional[bytearray] = None
         self._worker_thread: Optional[QThread] = None
+        self._current_step = 0
 
-        self.setStyleSheet(f"background: {Colors.BG_DARKEST};")
         self._bl_status_ready.connect(self._on_bitlocker_checked)
         self._build_ui()
+        Tokens.subscribe(self._on_theme)
+        self.destroyed.connect(self._cleanup_sub)
+        self._apply_theme()
         self._start_bitlocker_check_async(self._vault_dir)
+
+    def _cleanup_sub(self) -> None:
+        Tokens.unsubscribe(self._on_theme)
+
+    def _on_theme(self, _pal: ThemePalette) -> None:
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        p = Tokens.colors
+        self.setStyleSheet(f"background-color: {p.bg};")
+        if hasattr(self, "_rec_display"):
+            self._rec_display.setStyleSheet(f"""
+                background-color: {p.input_bg};
+                color: {p.accent};
+                border: 1px solid {p.border};
+                border-radius: {Tokens.radius.CONTROL}px;
+                padding: 14px;
+                line-height: 1.5;
+            """)
+        self._update_dots(self._current_step)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(16)
 
-        # Progress dots
+        # 5-step progress indicator bar at top
         self._dots_row = QHBoxLayout()
         self._dots_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._dots_row.setSpacing(8)
         self._dots: list[QLabel] = []
-        for _ in range(5):
-            d = QLabel("●")
-            d.setFont(QFont("Segoe UI", 10))
-            self._dots.append(d)
-            self._dots_row.addWidget(d)
-        root.addSpacing(20)
+        for idx, step_name in enumerate(self._STEP_TITLES):
+            pill = QLabel(f"{idx + 1}. {step_name}", self)
+            pill.setFont(Tokens.type.font(Tokens.type.META, Tokens.type.WEIGHT_LABEL))
+            pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            pill.setMinimumWidth(82)
+            pill.setFixedHeight(26)
+            self._dots.append(pill)
+            self._dots_row.addWidget(pill)
         root.addLayout(self._dots_row)
 
         # Stacked pages
@@ -114,72 +148,74 @@ class SetupWizard(QWidget):
         self._stack.addWidget(self._build_recovery())    # 4: Display Recovery Key
         self._stack.addWidget(self._build_verify())      # 5: Verify 3 Groups & Finish
 
-        root.addWidget(self._stack)
+        root.addWidget(self._stack, 1)
         self._update_dots(0)
 
-    def _card(self, width: int = 500) -> tuple[QFrame, QVBoxLayout]:
-        card = QFrame()
+    def _card(self, width: int = 500) -> tuple[Card, QVBoxLayout]:
+        card = Card(self)
         card.setObjectName("WizardCard")
-        card.setFixedWidth(width)
-        card.setStyleSheet(f"""
-            #WizardCard {{
-                background: {Colors.BG_CARD};
-                border: 1px solid {Colors.BORDER};
-                border-radius: 20px;
-            }}
-        """)
+        card.setMaximumWidth(width)
+        card.setMinimumWidth(min(400, width))
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(44, 40, 44, 36)
+        layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(14)
         return card, layout
 
     def _page(self, widget: QWidget) -> QWidget:
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }")
+
         page = QWidget()
-        page.setStyleSheet(f"background: {Colors.BG_DARKEST};")
+        page.setStyleSheet("background: transparent;")
         v = QVBoxLayout(page)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.addStretch()
+        v.setContentsMargins(16, 8, 16, 16)
+        v.addStretch(1)
         h = QHBoxLayout()
-        h.addStretch()
+        h.addStretch(1)
         h.addWidget(widget)
-        h.addStretch()
+        h.addStretch(1)
         v.addLayout(h)
-        v.addStretch()
-        return page
+        v.addStretch(1)
+        scroll.setWidget(page)
+        return scroll
 
     # ── Page 0: Welcome ───────────────────────────────────────────────────────
 
     def _build_welcome(self) -> QWidget:
+        p = Tokens.colors
         card, lay = self._card()
-        lay.addWidget(self._icon("shield", 48, Colors.PRIMARY))
-        lay.addWidget(self._heading("Welcome to Personal Vault"))
+        lay.addWidget(self._icon("shield", 40, p.accent))
+        lay.addWidget(self._heading("Create Personal Vault"))
         lay.addWidget(self._subtext(
-            "Your files, photos, and videos will be encrypted with AES-256-GCM "
-            "and protected by Argon2id. Only you can access your vault."
+            "Files, photos, and videos are encrypted locally with AES-256-GCM "
+            "and protected by Argon2id. Only you hold the keys."
         ))
-        lay.addSpacing(8)
 
-        lay.addWidget(SectionHeader("VAULT LOCATION"))
+        lay.addWidget(SectionHeader("Vault Location", card))
         loc_row = QHBoxLayout()
-        self._loc_edit = QLineEdit(str(self._vault_dir))
+        loc_row.setSpacing(8)
+        self._loc_edit = QLineEdit(str(self._vault_dir), card)
         self._loc_edit.setReadOnly(True)
-        browse_btn = QPushButton("Browse…")
-        browse_btn.setFixedWidth(90)
+        self._loc_edit.setAccessibleName("Vault folder path")
+        browse_btn = SecondaryButton("Browse…", parent=card)
+        browse_btn.setFixedWidth(96)
         browse_btn.clicked.connect(self._browse_vault_dir)
-        loc_row.addWidget(self._loc_edit)
+        loc_row.addWidget(self._loc_edit, 1)
         loc_row.addWidget(browse_btn)
         lay.addLayout(loc_row)
 
-        # BitLocker advisory (Audit Item 40 — run asynchronously to keep startup instant)
-        self._bl_lbl = QLabel("Checking drive encryption status…")
+        self._bl_lbl = QLabel("Checking drive encryption status…", card)
         self._bl_lbl.setWordWrap(True)
-        self._bl_lbl.setStyleSheet(
-            f"color: {Colors.TEXT_MUTED}; font-size: 11px; background: transparent;"
-        )
+        self._bl_lbl.setFont(Tokens.type.font(Tokens.type.META, Tokens.type.WEIGHT_BODY))
+        self._bl_lbl.setStyleSheet(f"color: {p.text_muted}; background: transparent;")
         lay.addWidget(self._bl_lbl)
-        lay.addSpacing(16)
+        lay.addSpacing(8)
 
-        self._next_btn_0 = GlowButton("Get Started →")
+        self._next_btn_0 = PrimaryButton("Continue", icon_name="chevron_right", parent=card)
+        self._next_btn_0.setFixedHeight(42)
         self._next_btn_0.clicked.connect(lambda: self._go(1))
         lay.addWidget(self._next_btn_0)
         return self._page(card)
@@ -190,7 +226,6 @@ class SetupWizard(QWidget):
         def _probe() -> None:
             try:
                 from ..system.bitlocker import check_bitlocker_status
-
                 is_bl, msg = check_bitlocker_status(drive_path)
             except Exception:
                 is_bl, msg = False, "For maximum offline protection, consider enabling BitLocker on this drive."
@@ -202,10 +237,11 @@ class SetupWizard(QWidget):
         threading.Thread(target=_probe, daemon=True, name="BitLockerCheck").start()
 
     def _on_bitlocker_checked(self, is_bl: bool, msg: str) -> None:
+        p = Tokens.colors
         if hasattr(self, "_bl_lbl"):
             self._bl_lbl.setText(msg)
             self._bl_lbl.setStyleSheet(
-                f"color: {Colors.SUCCESS if is_bl else Colors.WARNING}; font-size: 11px; background: transparent;"
+                f"color: {p.success if is_bl else p.warning}; font-size: {Tokens.type.META}px; background: transparent;"
             )
 
     def _browse_vault_dir(self) -> None:
@@ -214,7 +250,6 @@ class SetupWizard(QWidget):
         from mylocker.app.core.keystore import Keystore
         d = QFileDialog.getExistingDirectory(self, "Choose Vault Location", str(self._vault_dir))
         if d:
-            # Random folder name generated at setup for privacy
             self._vault_dir = Path(d) / f"pv_{secrets.token_hex(6)}"
             self._loc_edit.setText(str(self._vault_dir))
             self._keystore = Keystore(self._vault_dir)
@@ -233,24 +268,24 @@ class SetupWizard(QWidget):
 
     def _build_password(self) -> QWidget:
         card, lay = self._card()
-        lay.addWidget(self._icon("lock", 40, Colors.PRIMARY))
-        lay.addWidget(self._heading("Set Your Master Password"))
+        lay.addWidget(self._icon("lock", 36, Tokens.colors.accent))
+        lay.addWidget(self._heading("Set Master Password"))
         lay.addWidget(self._subtext(
-            "Choose a strong password (minimum 12 characters). "
-            "This password protects your Master Key."
+            "Use at least 12 characters combining uppercase, lowercase, digits, and symbols."
         ))
-        lay.addSpacing(8)
 
-        self._pw1 = QLineEdit()
+        self._pw1 = QLineEdit(card)
         self._pw1.setEchoMode(QLineEdit.EchoMode.Password)
         self._pw1.setPlaceholderText("Master password…")
-        self._pw1.setFixedHeight(44)
+        self._pw1.setAccessibleName("Master password")
+        self._pw1.setFixedHeight(42)
         self._pw1.textChanged.connect(self._on_pw_changed)
 
-        self._pw2 = QLineEdit()
+        self._pw2 = QLineEdit(card)
         self._pw2.setEchoMode(QLineEdit.EchoMode.Password)
         self._pw2.setPlaceholderText("Confirm password…")
-        self._pw2.setFixedHeight(44)
+        self._pw2.setAccessibleName("Confirm master password")
+        self._pw2.setFixedHeight(42)
 
         self._pw1_eye = self._attach_eye_toggle(self._pw1)
         self._pw2_eye = self._attach_eye_toggle(self._pw2)
@@ -264,13 +299,11 @@ class SetupWizard(QWidget):
         lay.addWidget(self._strength_bar)
         lay.addWidget(self._pw2)
         lay.addWidget(self._pw_error)
-        lay.addSpacing(8)
 
         btn_row = QHBoxLayout()
-        back = QPushButton("← Back")
-        back.setProperty("flat", True)
+        back = SecondaryButton("Back", icon_name="chevron_left", parent=card)
         back.clicked.connect(lambda: self._go(0))
-        self._next_btn_1 = GlowButton("Continue →")
+        self._next_btn_1 = PrimaryButton("Continue", icon_name="chevron_right", parent=card)
         self._next_btn_1.clicked.connect(self._validate_password)
         btn_row.addWidget(back)
         btn_row.addStretch()
@@ -287,10 +320,10 @@ class SetupWizard(QWidget):
         from mylocker.app.core.password_policy import validate_password
         ok, msg, _ = validate_password(pw1)
         if not ok:
-            self._pw_error.show_text(f"⚠ {msg}", Colors.DANGER)
+            self._pw_error.show_text(msg, Tokens.colors.danger)
             return
         if pw1 != pw2:
-            self._pw_error.show_text("⚠ Passwords do not match.", Colors.DANGER)
+            self._pw_error.show_text("Passwords do not match.", Tokens.colors.danger)
             return
         self._go(2)
 
@@ -298,39 +331,36 @@ class SetupWizard(QWidget):
 
     def _build_keyfile(self) -> QWidget:
         card, lay = self._card()
-        lay.addWidget(self._icon("key", 40, Colors.PRIMARY))
-        lay.addWidget(self._heading("Optional: USB Key File"))
+        lay.addWidget(self._icon("key", 36, Tokens.colors.accent))
+        lay.addWidget(self._heading("Optional USB Key File"))
         lay.addWidget(self._subtext(
-            "A key file on a USB drive acts as a physical second factor. "
-            "Without it, the vault cannot open even with the correct password."
+            "A physical key file acts as a hardware second factor. "
+            "Without both your password and the file, the vault cannot unlock."
         ))
-        lay.addSpacing(8)
 
-        self._kf_check = QCheckBox("Enable USB key file (second factor)")
-        self._kf_check.setStyleSheet(f"color: {Colors.TEXT_PRIMARY};")
+        self._kf_check = QCheckBox("Require a key file as second factor", card)
         self._kf_check.toggled.connect(self._on_kf_toggled)
         lay.addWidget(self._kf_check)
 
         self._kf_row = QHBoxLayout()
-        self._kf_edit = QLineEdit()
-        self._kf_edit.setPlaceholderText("Path to key file on USB drive…")
+        self._kf_row.setSpacing(8)
+        self._kf_edit = QLineEdit(card)
+        self._kf_edit.setPlaceholderText("Path to key file…")
+        self._kf_edit.setAccessibleName("Key file path")
         self._kf_edit.setEnabled(False)
-        self._kf_browse = QPushButton("Browse…")
-        self._kf_browse.setFixedWidth(90)
+        self._kf_browse = SecondaryButton("Browse…", parent=card)
+        self._kf_browse.setFixedWidth(96)
         self._kf_browse.setEnabled(False)
         self._kf_browse.clicked.connect(self._browse_keyfile)
-        self._kf_row.addWidget(self._kf_edit)
+        self._kf_row.addWidget(self._kf_edit, 1)
         self._kf_row.addWidget(self._kf_browse)
         lay.addLayout(self._kf_row)
-        lay.addSpacing(16)
+        lay.addSpacing(8)
 
         btn_row = QHBoxLayout()
-        back = QPushButton("← Back")
-        back.setProperty("flat", True)
+        back = SecondaryButton("Back", icon_name="chevron_left", parent=card)
         back.clicked.connect(lambda: self._go(1))
-        # Button triggers Argon2 benchmark & vault setup!
-        create_btn = GlowButton(" Create Vault")
-        create_btn.setIcon(icons.get_icon("shield", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
+        create_btn = PrimaryButton("Create Vault", icon_name="shield_check", parent=card)
         create_btn.clicked.connect(self._on_create_vault_clicked)
         btn_row.addWidget(back)
         btn_row.addStretch()
@@ -351,7 +381,7 @@ class SetupWizard(QWidget):
         if self._kf_check.isChecked():
             path = self._kf_edit.text().strip()
             if not path or not os.path.exists(path):
-                QMessageBox.warning(self, "Key File Required", "Please select a valid key file.")
+                DialogShell.warn(self, "Key File Required", "Please select a valid key file.")
                 return
             self._keyfile = path
         else:
@@ -362,12 +392,13 @@ class SetupWizard(QWidget):
 
     def _build_processing(self) -> QWidget:
         card, lay = self._card()
-        lay.addWidget(self._icon("settings", 40, Colors.PRIMARY))
-        lay.addWidget(self._heading("Setting Up Your Vault"))
-        self._proc_status = QLabel("Calibrating Argon2id security (~0.25s)…")
+        lay.addWidget(self._icon("settings", 36, Tokens.colors.accent))
+        lay.addWidget(self._heading("Benchmarking & Creating Vault"))
+        self._proc_status = QLabel("Calibrating Argon2id key derivation (~0.25s)…", card)
         self._proc_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._proc_status.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; font-size: 13px; background: transparent;")
-        self._proc_bar = QProgressBar()
+        self._proc_status.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        self._proc_status.setProperty("role", "secondary")
+        self._proc_bar = QProgressBar(card)
         self._proc_bar.setRange(0, 0)
         self._proc_bar.setTextVisible(False)
         self._proc_bar.setFixedHeight(8)
@@ -409,7 +440,7 @@ class SetupWizard(QWidget):
             self._worker_thread.quit()
             self._worker_thread.wait(3000)
         logger.error("Setup worker failed: %s", msg)
-        QMessageBox.critical(
+        DialogShell.error(
             self,
             "Setup Failed",
             "Could not create vault. Please check the selected directory and try again. [ERR-SETUP-02]",
@@ -420,61 +451,46 @@ class SetupWizard(QWidget):
 
     def _build_recovery(self) -> QWidget:
         card, lay = self._card(520)
-        lay.addWidget(self._icon("key", 40, Colors.ACCENT))
-        lay.addWidget(self._heading("Your Recovery Key"))
+        lay.addWidget(self._icon("key", 36, Tokens.colors.accent))
+        lay.addWidget(self._heading("Save Recovery Key"))
         lay.addWidget(self._subtext(
-            "This recovery key can restore your vault if you ever forget your password. "
-            "Write it down or save it safely. It will NEVER be shown again."
+            "Store this 256-bit recovery key safely outside your vault. "
+            "It is the only way to recover access if you forget your password."
         ))
-        lay.addSpacing(8)
 
-        self._rec_display = QLabel("")
-        self._rec_display.setFont(QFont("Cascadia Code, Consolas, Courier New", 12))
+        self._rec_display = QLabel("", card)
+        self._rec_display.setFont(QFont("Cascadia Code, Consolas, Courier New", 12, QFont.Weight.Bold))
         self._rec_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._rec_display.setWordWrap(True)
-        self._rec_display.setStyleSheet(f"""
-            background: {Colors.BG_INPUT};
-            color: {Colors.ACCENT};
-            border: 1px solid {Colors.BORDER};
-            border-radius: 8px;
-            padding: 14px;
-            line-height: 1.5;
-        """)
-        self._rec_display.setMinimumHeight(80)
+        self._rec_display.setMinimumHeight(76)
         lay.addWidget(self._rec_display)
 
         copy_row = QHBoxLayout()
-        self._copy_btn = QPushButton(" Copy Key")
-        self._copy_btn.setIcon(icons.get_icon("copy", color=Colors.TEXT_PRIMARY))
-        self._copy_btn.setProperty("ghost", True)
+        copy_row.setSpacing(8)
+        self._copy_btn = SecondaryButton("Copy Key", icon_name="copy", parent=card)
         self._copy_btn.clicked.connect(self._copy_recovery)
 
-        self._save_btn = QPushButton(" Save to File")
-        self._save_btn.setIcon(icons.get_icon("download", color=Colors.TEXT_PRIMARY))
-        self._save_btn.setProperty("ghost", True)
+        self._save_btn = SecondaryButton("Save to File", icon_name="download", parent=card)
         self._save_btn.clicked.connect(self._save_recovery)
 
         copy_row.addWidget(self._copy_btn)
         copy_row.addWidget(self._save_btn)
         lay.addLayout(copy_row)
-        lay.addSpacing(8)
 
-        # Acknowledgement — custom checkbox + wrapped label pair
         ack_row = QHBoxLayout()
-        self._ack_check = QCheckBox()
+        self._ack_check = QCheckBox(card)
         self._ack_check.toggled.connect(self._on_ack_toggled)
         ack_label = QLabel(
-            "I have safely written down or stored my recovery key in a secure location."
+            "I have saved my recovery key in a safe location.", card
         )
         ack_label.setWordWrap(True)
-        ack_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-size: 12px; background: transparent;")
-        ack_row.addWidget(self._ack_check, alignment=Qt.AlignmentFlag.AlignTop)
+        ack_label.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
+        ack_row.addWidget(self._ack_check, alignment=Qt.AlignmentFlag.AlignVCenter)
         ack_row.addWidget(ack_label, stretch=1)
         lay.addLayout(ack_row)
-        lay.addSpacing(16)
 
         btn_row = QHBoxLayout()
-        self._rec_continue_btn = GlowButton("Verify Key →")
+        self._rec_continue_btn = PrimaryButton("Verify Key", icon_name="chevron_right", parent=card)
         self._rec_continue_btn.setEnabled(False)
         self._rec_continue_btn.clicked.connect(self._prepare_verify_page)
         btn_row.addStretch()
@@ -489,28 +505,25 @@ class SetupWizard(QWidget):
 
     def _build_verify(self) -> QWidget:
         card, lay = self._card(500)
-        lay.addWidget(self._icon("shield_check", 40, Colors.SUCCESS))
+        lay.addWidget(self._icon("shield_check", 36, Tokens.colors.success))
         lay.addWidget(self._heading("Confirm Recovery Key"))
         self._verify_subtext = QLabel(
-            "To ensure you saved your recovery key correctly, please enter the requested 3 groups below:"
+            "Enter the 3 requested groups below to confirm your recovery key backup:", card
         )
-        self._verify_subtext.setFont(QFont("Segoe UI", 12))
+        self._verify_subtext.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        self._verify_subtext.setProperty("role", "secondary")
         self._verify_subtext.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._verify_subtext.setWordWrap(True)
-        self._verify_subtext.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; background: transparent;")
         lay.addWidget(self._verify_subtext)
-        lay.addSpacing(8)
 
-        # 3 verification input fields
         self._verify_labels: list[QLabel] = []
         self._verify_edits: list[QLineEdit] = []
         for i in range(3):
-            lbl = QLabel(f"Group #{i+1}:")
-            lbl.setFont(QFont("Segoe UI", 11, QFont.Weight.Medium))
-            lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
-            edit = QLineEdit()
+            lbl = QLabel(f"Group #{i+1}:", card)
+            lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
+            edit = QLineEdit(card)
             edit.setFont(QFont("Cascadia Code, Consolas", 12))
-            edit.setFixedHeight(40)
+            edit.setFixedHeight(38)
             edit.setPlaceholderText("Enter 8-character group…")
             edit.textChanged.connect(self._check_verification)
             edit.returnPressed.connect(self._on_verify_enter)
@@ -521,14 +534,11 @@ class SetupWizard(QWidget):
 
         self._verify_error = FadeLabel("")
         lay.addWidget(self._verify_error)
-        lay.addSpacing(12)
 
         btn_row = QHBoxLayout()
-        back = QPushButton("← Back to Key")
-        back.setProperty("flat", True)
+        back = SecondaryButton("Back", icon_name="chevron_left", parent=card)
         back.clicked.connect(lambda: self._go(4))
-        self._finish_btn = GlowButton(" Finish & Open Vault")
-        self._finish_btn.setIcon(icons.get_icon("check", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
+        self._finish_btn = PrimaryButton("Finish & Open Vault", icon_name="check", parent=card)
         self._finish_btn.setEnabled(False)
         self._finish_btn.clicked.connect(self._finish_setup)
         btn_row.addWidget(back)
@@ -550,7 +560,7 @@ class SetupWizard(QWidget):
             self._verify_edits[i].clear()
 
         self._finish_btn.setEnabled(False)
-        self._verify_error.show_text("", Colors.TEXT_SECONDARY)
+        self._verify_error.show_text("", Tokens.colors.text_secondary)
         self._go(5)
 
     def _check_verification(self) -> None:
@@ -573,16 +583,17 @@ class SetupWizard(QWidget):
 
     def _attach_eye_toggle(self, field: QLineEdit) -> QAction:
         action = QAction(self)
-        action.setIcon(icons.get_icon("eye", color=Colors.TEXT_MUTED))
+        action.setIcon(icons.get_icon("eye", color=Tokens.colors.text_muted))
         action.setToolTip("Show / Hide password")
 
         def _toggle() -> None:
+            p = Tokens.colors
             if field.echoMode() == QLineEdit.EchoMode.Password:
                 field.setEchoMode(QLineEdit.EchoMode.Normal)
-                action.setIcon(icons.get_icon("eye_off", color=Colors.ACCENT))
+                action.setIcon(icons.get_icon("eye_off", color=p.accent))
             else:
                 field.setEchoMode(QLineEdit.EchoMode.Password)
-                action.setIcon(icons.get_icon("eye", color=Colors.TEXT_MUTED))
+                action.setIcon(icons.get_icon("eye", color=p.text_muted))
 
         action.triggered.connect(_toggle)
         field.addAction(action, QLineEdit.ActionPosition.TrailingPosition)
@@ -592,26 +603,32 @@ class SetupWizard(QWidget):
 
     def _go(self, page: int) -> None:
         self._stack.setCurrentIndex(page)
-        # Map page index to 5 progress dots
-        dot_idx = min(page, 4)
-        if page == 5:
-            dot_idx = 4
-        self._update_dots(dot_idx)
+        self._current_step = min(page, 4)
+        self._update_dots(self._current_step)
 
     def _update_dots(self, current: int) -> None:
-        for i, d in enumerate(self._dots):
+        p = Tokens.colors
+        for i, pill in enumerate(self._dots):
             if i == current:
-                d.setStyleSheet(f"color: {Colors.ACCENT}; background: transparent;")
+                pill.setStyleSheet(
+                    f"background-color: {p.accent_tint}; color: {p.text}; "
+                    f"border: 1px solid {p.accent_border}; border-radius: 6px; padding: 0 8px;"
+                )
             elif i < current:
-                d.setStyleSheet(f"color: {Colors.SUCCESS}; background: transparent;")
+                pill.setStyleSheet(
+                    f"background-color: {p.success_tint}; color: {p.success}; "
+                    f"border: 1px solid {p.success_border}; border-radius: 6px; padding: 0 8px;"
+                )
             else:
-                d.setStyleSheet(f"color: {Colors.TEXT_MUTED}; background: transparent;")
+                pill.setStyleSheet(
+                    f"background-color: {p.card}; color: {p.text_muted}; "
+                    f"border: 1px solid {p.border}; border-radius: 6px; padding: 0 8px;"
+                )
 
     def _copy_recovery(self) -> None:
-        from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(self._recovery_key or "")
         self._copy_btn.setText("Copied!")
-        QTimer.singleShot(2000, lambda: self._copy_btn.setText(" Copy Key"))
+        QTimer.singleShot(2000, lambda: self._copy_btn.setText("Copy Key"))
 
     def _save_recovery(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -622,36 +639,28 @@ class SetupWizard(QWidget):
                 fh.write(f"Personal Vault Recovery Key\n{'=' * 40}\n")
                 fh.write(self._recovery_key + "\n")
                 fh.write("\nStore this file securely. It can unlock your vault if you lose your password.\n")
-            QMessageBox.information(self, "Saved", "Recovery key saved successfully.")
+            DialogShell.inform(self, "Saved", "Recovery key saved successfully.")
 
-    def _icon(self, name: str, size: int, color: str = Colors.PRIMARY) -> QLabel:
+    def _icon(self, name: str, size: int, color: Optional[str] = None) -> QLabel:
         lbl = QLabel()
-        lbl.setPixmap(icons.get_pixmap(name, size=size, color=color))
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("background: transparent;")
-        return lbl
-
-    def _emoji(self, text: str, size: int) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setFont(QFont("Segoe UI Emoji", size))
+        lbl.setPixmap(icons.get_pixmap(name, size=size, color=color or Tokens.colors.accent))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet("background: transparent;")
         return lbl
 
     def _heading(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        lbl.setFont(Tokens.type.font(Tokens.type.PAGE_TITLE, Tokens.type.WEIGHT_TITLE))
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; background: transparent;")
         return lbl
 
     def _subtext(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setFont(QFont("Segoe UI", 12))
+        lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_BODY))
+        lbl.setProperty("role", "secondary")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; background: transparent;")
         return lbl
 
 

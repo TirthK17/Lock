@@ -29,7 +29,7 @@ if __package__ in (None, ""):
         sys.path.insert(0, _repo_root)
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QMessageBox, QStackedWidget
+from PySide6.QtWidgets import QApplication, QStackedWidget
 
 from mylocker.app.applock.config import AppLockConfig
 from mylocker.app.applock.prompt import AppLockPrompt
@@ -404,7 +404,8 @@ class PersonalVaultApp:
         except Exception as exc:
             logger.critical("Failed to complete vault setup: %s", type(exc).__name__)
             get_session().lock()
-            QMessageBox.critical(
+            from mylocker.app.ui.components import DialogShell
+            DialogShell.error(
                 self.stack,
                 "Setup Error",
                 "An error occurred during vault initialization. Please check folder permissions and try again. [ERR-SETUP-01]",

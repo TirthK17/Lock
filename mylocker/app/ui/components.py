@@ -292,14 +292,16 @@ class SearchBar(QFrame):
 class Toggle(QAbstractButton):
     """macOS/Linear style binary toggle switch supporting QCheckBox APIs cleanly."""
 
-    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None, *, checked: bool = False) -> None:
         super().__init__(parent)
         self.setCheckable(True)
         self.setText(text)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(40, 22)
-        self._pos = 0.0
+        self._pos = 1.0 if checked else 0.0
         self._hovered = False
+        if checked:
+            super().setChecked(True)
 
         self._anim = QVariantAnimation(self)
         self._anim.setDuration(Tokens.motion.FAST)

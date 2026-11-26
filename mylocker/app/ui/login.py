@@ -34,7 +34,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -48,6 +47,8 @@ from PySide6.QtWidgets import (
 
 from ..core.password_policy import validate_password
 from . import icons
+from .components import DialogShell, PrimaryButton, SecondaryButton
+from .design_system import Tokens
 from .login_theme import (
     AmbientLoginBackdrop,
     DividerWithSparkle,
@@ -61,8 +62,7 @@ from .login_theme import (
     UnlockPrimaryButton,
     is_reduced_motion,
 )
-from .theme import Colors
-from .widgets import GlowButton, PasswordStrengthBar
+from .widgets import PasswordStrengthBar
 
 logger = logging.getLogger(__name__)
 
@@ -171,96 +171,52 @@ class LoginWorker(QThread):
 # ─── Modern Recovery Key Dialog ──────────────────────────────────────────────
 
 
-class RecoveryKeyDialog(QDialog):
-    """Themed modal dialog for entering the 256-bit Base32 emergency recovery key."""
+class RecoveryKeyDialog(DialogShell):
+    """Modal DialogShell for entering the 256-bit Base32 emergency recovery key."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Emergency Recovery Key Unlock")
-        self.setFixedSize(520, 360)
-        self.setStyleSheet(
-            f"QDialog {{ background: {LoginColors.BG_PRIMARY}; color: {LoginColors.TEXT_PRIMARY}; }}"
-        )
         self._recovery_key = ""
+        super().__init__(
+            title="Enter Recovery Key",
+            subtitle="Enter the 256-bit Base32 emergency recovery key saved during setup. Dashes are optional.",
+            icon_name="key",
+            icon_color=Tokens.colors.accent,
+            parent=parent,
+            min_width=460,
+            max_width=540,
+        )
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(14)
-
-        # Header with icon
-        hdr_row = QHBoxLayout()
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(icons.get_pixmap("key", size=30, color=LoginColors.RECOVERY_BLUE))
-        icon_lbl.setStyleSheet("background: transparent;")
-        title_lbl = QLabel("Enter Recovery Key")
-        title_lbl.setFont(LoginTypography.font(20, QFont.Weight.Bold))
-        title_lbl.setStyleSheet(f"color: {LoginColors.TEXT_PRIMARY}; background: transparent;")
-        hdr_row.addWidget(icon_lbl)
-        hdr_row.addSpacing(10)
-        hdr_row.addWidget(title_lbl)
-        hdr_row.addStretch()
-        layout.addLayout(hdr_row)
-
-        sub_lbl = QLabel(
-            "Enter your 256-bit Base32 emergency recovery key saved during first-run setup. "
-            "Dashes are optional."
-        )
-        sub_lbl.setFont(LoginTypography.font(13))
-        sub_lbl.setStyleSheet(f"color: {LoginColors.TEXT_SECONDARY}; background: transparent;")
-        sub_lbl.setWordWrap(True)
-        layout.addWidget(sub_lbl)
-
-        # Input field with paste button
+        p = Tokens.colors
         input_row = QHBoxLayout()
-        self._key_input = QLineEdit()
+        input_row.setSpacing(8)
+        self._key_input = QLineEdit(self.body_widget)
         self._key_input.setPlaceholderText("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX…")
+        self._key_input.setAccessibleName("Recovery key")
         self._key_input.setFont(QFont("Cascadia Code, Consolas, Courier New", 11))
-        self._key_input.setFixedHeight(44)
-        self._key_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {LoginColors.INPUT_BG_HEX};
-                color: {LoginColors.ICE_BLUE};
-                border: 1px solid rgba(110, 150, 190, 0.28);
-                border-radius: 10px;
-                padding: 0 12px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {LoginColors.INPUT_FOCUS};
-            }}
-        """)
+        self._key_input.setFixedHeight(42)
         self._key_input.returnPressed.connect(self._on_submit)
-        input_row.addWidget(self._key_input)
+        input_row.addWidget(self._key_input, 1)
 
-        paste_btn = QPushButton(" Paste")
-        paste_btn.setIcon(icons.get_icon("copy", color=LoginColors.TEXT_PRIMARY))
-        paste_btn.setFixedHeight(44)
+        paste_btn = SecondaryButton("Paste", icon_name="copy", parent=self.body_widget)
+        paste_btn.setFixedHeight(42)
         paste_btn.clicked.connect(self._paste_clipboard)
         input_row.addWidget(paste_btn)
-        layout.addLayout(input_row)
+        self.body_layout.addLayout(input_row)
 
-        # Error label
-        self._error_lbl = QLabel("")
-        self._error_lbl.setStyleSheet(f"color: {LoginColors.ERROR}; font-size: 12px; background: transparent;")
+        self._error_lbl = QLabel("", self.body_widget)
+        self._error_lbl.setStyleSheet(f"color: {p.danger}; font-size: {Tokens.type.LABEL}px; background: transparent;")
         self._error_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._error_lbl)
+        self.body_layout.addWidget(self._error_lbl)
 
-        layout.addStretch()
-
-        # Action buttons
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setProperty("ghost", True)
+        cancel_btn = SecondaryButton("Cancel", parent=self)
         cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch()
+        self.add_footer_button(cancel_btn)
 
-        self._submit_btn = UnlockPrimaryButton("Unlock with Key", height=46)
-        self._submit_btn.setMinimumWidth(190)
+        self._submit_btn = PrimaryButton("Unlock with Key", parent=self)
         self._submit_btn.clicked.connect(self._on_submit)
-        btn_row.addWidget(self._submit_btn)
-        layout.addLayout(btn_row)
+        self.add_footer_button(self._submit_btn)
 
     def _paste_clipboard(self) -> None:
         text = QApplication.clipboard().text().strip()
@@ -357,8 +313,8 @@ class RecoveryWorker(QThread):
         self.failure.emit(msg, count, remaining)
 
 
-class ForgotPasswordDialog(QDialog):
-    """Modal dialog to reset Master Password using the 256-bit Recovery Key (or unlock once)."""
+class ForgotPasswordDialog(DialogShell):
+    """Modal DialogShell to reset Master Password using the 256-bit Recovery Key (or unlock once)."""
 
     def __init__(
         self,
@@ -366,110 +322,77 @@ class ForgotPasswordDialog(QDialog):
         lockout=None,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)
         self._keystore = keystore
         self._lockout = lockout
         self._worker: Optional[RecoveryWorker] = None
         self._master_key: Optional[bytearray] = None
         self._password_reset: bool = False
         self._photo_threads: list[QThread] = []
-        self.setWindowTitle("Forgot Password — Reset via Recovery Key")
-        self.setMinimumWidth(520)
-        self.setStyleSheet(
-            f"QDialog {{ background: {LoginColors.BG_PRIMARY}; color: {LoginColors.TEXT_PRIMARY}; }}"
+        super().__init__(
+            title="Recover Access & Reset Password",
+            subtitle="Enter your 256-bit Base32 recovery key saved during setup to unlock your vault and set a new Master Password.",
+            icon_name="key",
+            icon_color=Tokens.colors.accent,
+            parent=parent,
+            min_width=480,
+            max_width=560,
         )
         self._setup_ui()
 
     def _attach_eye_toggle(self, line_edit: QLineEdit) -> None:
         action = QAction(line_edit)
-        action.setIcon(icons.get_icon("eye", color=Colors.TEXT_MUTED))
+        action.setIcon(icons.get_icon("eye", color=Tokens.colors.text_muted))
         action.setToolTip("Show / Hide password")
 
         def _toggle() -> None:
+            p = Tokens.colors
             if line_edit.echoMode() == QLineEdit.EchoMode.Password:
                 line_edit.setEchoMode(QLineEdit.EchoMode.Normal)
-                action.setIcon(icons.get_icon("eye_off", color=LoginColors.ICE_BLUE))
+                action.setIcon(icons.get_icon("eye_off", color=p.accent))
             else:
                 line_edit.setEchoMode(QLineEdit.EchoMode.Password)
-                action.setIcon(icons.get_icon("eye", color=Colors.TEXT_MUTED))
+                action.setIcon(icons.get_icon("eye", color=p.text_muted))
 
         action.triggered.connect(_toggle)
         line_edit.addAction(action, QLineEdit.ActionPosition.TrailingPosition)
 
     def _setup_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(12)
-
-        hdr_row = QHBoxLayout()
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(icons.get_pixmap("key", size=28, color=LoginColors.RECOVERY_BLUE))
-        icon_lbl.setStyleSheet("background: transparent;")
-        title_lbl = QLabel("Recover Access & Reset Password")
-        title_lbl.setFont(LoginTypography.font(18, QFont.Weight.Bold))
-        title_lbl.setStyleSheet(f"color: {LoginColors.TEXT_PRIMARY}; background: transparent;")
-        hdr_row.addWidget(icon_lbl)
-        hdr_row.addSpacing(10)
-        hdr_row.addWidget(title_lbl)
-        hdr_row.addStretch()
-        layout.addLayout(hdr_row)
-
-        sub_lbl = QLabel(
-            "Enter your 256-bit Base32 recovery key saved during setup to unlock your vault "
-            "and set a new Master Password."
-        )
-        sub_lbl.setFont(LoginTypography.font(13))
-        sub_lbl.setStyleSheet(f"color: {LoginColors.TEXT_SECONDARY}; background: transparent;")
-        sub_lbl.setWordWrap(True)
-        layout.addWidget(sub_lbl)
-
-        rec_lbl = QLabel("Recovery Key:")
-        rec_lbl.setStyleSheet(f"color: {LoginColors.TEXT_MUTED}; font-size: 12px; background: transparent;")
-        layout.addWidget(rec_lbl)
+        p = Tokens.colors
+        rec_lbl = QLabel("Recovery Key:", self.body_widget)
+        rec_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
+        rec_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
+        self.body_layout.addWidget(rec_lbl)
 
         input_row = QHBoxLayout()
-        self._key_input = QLineEdit()
+        input_row.setSpacing(8)
+        self._key_input = QLineEdit(self.body_widget)
         self._key_input.setPlaceholderText("XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX…")
+        self._key_input.setAccessibleName("Recovery key")
         self._key_input.setFont(QFont("Cascadia Code, Consolas, Courier New", 11))
-        self._key_input.setFixedHeight(42)
-        self._key_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {LoginColors.INPUT_BG_HEX};
-                color: {LoginColors.ICE_BLUE};
-                border: 1px solid rgba(110, 150, 190, 0.28);
-                border-radius: 10px;
-                padding: 0 12px;
-            }}
-            QLineEdit:focus {{
-                border: 1px solid {LoginColors.INPUT_FOCUS};
-            }}
-        """)
-        input_row.addWidget(self._key_input)
+        self._key_input.setFixedHeight(40)
+        input_row.addWidget(self._key_input, 1)
 
-        paste_btn = QPushButton(" Paste")
-        paste_btn.setIcon(icons.get_icon("copy", color=LoginColors.TEXT_PRIMARY))
-        paste_btn.setFixedHeight(42)
+        paste_btn = SecondaryButton("Paste", icon_name="copy", parent=self.body_widget)
+        paste_btn.setFixedHeight(40)
         paste_btn.clicked.connect(self._paste_clipboard)
         input_row.addWidget(paste_btn)
-        layout.addLayout(input_row)
+        self.body_layout.addLayout(input_row)
 
-        # Toggle reset vs unlock-only
-        self._reset_check = QCheckBox("Set a new Master Password (Recommended)")
+        self._reset_check = QCheckBox("Set a new Master Password (Recommended)", self.body_widget)
         self._reset_check.setChecked(True)
         self._reset_check.toggled.connect(self._on_mode_toggled)
-        layout.addWidget(self._reset_check)
+        self.body_layout.addWidget(self._reset_check)
 
-        # New password container
-        self._pw_container = QWidget()
+        self._pw_container = QWidget(self.body_widget)
         self._pw_container.setStyleSheet("background: transparent;")
         pw_lay = QVBoxLayout(self._pw_container)
         pw_lay.setContentsMargins(0, 4, 0, 0)
         pw_lay.setSpacing(8)
 
-        self._new_pw1 = QLineEdit()
+        self._new_pw1 = QLineEdit(self._pw_container)
         self._new_pw1.setEchoMode(QLineEdit.EchoMode.Password)
         self._new_pw1.setPlaceholderText("New Master Password (min 12 chars, mixed case + digit + symbol)")
-        self._new_pw1.setFixedHeight(42)
+        self._new_pw1.setFixedHeight(40)
         self._attach_eye_toggle(self._new_pw1)
         pw_lay.addWidget(self._new_pw1)
 
@@ -477,10 +400,10 @@ class ForgotPasswordDialog(QDialog):
         pw_lay.addWidget(self._strength)
         self._new_pw1.textChanged.connect(self._strength.update_password)
 
-        self._new_pw2 = QLineEdit()
+        self._new_pw2 = QLineEdit(self._pw_container)
         self._new_pw2.setEchoMode(QLineEdit.EchoMode.Password)
         self._new_pw2.setPlaceholderText("Confirm new Master Password…")
-        self._new_pw2.setFixedHeight(42)
+        self._new_pw2.setFixedHeight(40)
         self._attach_eye_toggle(self._new_pw2)
         pw_lay.addWidget(self._new_pw2)
 
@@ -492,27 +415,28 @@ class ForgotPasswordDialog(QDialog):
         except Exception:
             pass
 
-        self._use_kf_check = QCheckBox("Require a USB key file with the new password")
+        self._use_kf_check = QCheckBox("Require a USB key file with the new password", self._pw_container)
         self._use_kf_check.setChecked(kf_enabled_now)
         self._use_kf_check.toggled.connect(self._on_kf_toggled)
         pw_lay.addWidget(self._use_kf_check)
 
-        self._kf_row_w = QWidget()
+        self._kf_row_w = QWidget(self._pw_container)
         self._kf_row_w.setStyleSheet("background: transparent;")
         kf_row = QHBoxLayout(self._kf_row_w)
         kf_row.setContentsMargins(0, 0, 0, 0)
-        self._kf_edit = QLineEdit()
+        kf_row.setSpacing(8)
+        self._kf_edit = QLineEdit(self._kf_row_w)
         self._kf_edit.setPlaceholderText("Path to key file…")
         self._kf_edit.setFixedHeight(36)
-        kf_browse = QPushButton("Browse…")
+        kf_browse = SecondaryButton("Browse…", parent=self._kf_row_w)
         kf_browse.setFixedHeight(36)
         kf_browse.clicked.connect(self._browse_keyfile)
-        kf_row.addWidget(self._kf_edit)
+        kf_row.addWidget(self._kf_edit, 1)
         kf_row.addWidget(kf_browse)
         pw_lay.addWidget(self._kf_row_w)
         self._kf_row_w.setVisible(kf_enabled_now)
 
-        layout.addWidget(self._pw_container)
+        self.body_layout.addWidget(self._pw_container)
 
         self._new_pw1.returnPressed.connect(self._new_pw2.setFocus)
         self._new_pw2.returnPressed.connect(self._on_submit)
@@ -520,30 +444,25 @@ class ForgotPasswordDialog(QDialog):
             lambda: self._new_pw1.setFocus() if self._reset_check.isChecked() else self._on_submit()
         )
 
-        self._error_lbl = QLabel("")
-        self._error_lbl.setStyleSheet(f"color: {LoginColors.ERROR}; font-size: 12px; background: transparent;")
+        self._error_lbl = QLabel("", self.body_widget)
+        self._error_lbl.setStyleSheet(f"color: {p.danger}; font-size: {Tokens.type.LABEL}px; background: transparent;")
         self._error_lbl.setWordWrap(True)
         self._error_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._error_lbl)
+        self.body_layout.addWidget(self._error_lbl)
 
-        btn_row = QHBoxLayout()
-        self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setProperty("ghost", True)
+        self._cancel_btn = SecondaryButton("Cancel", parent=self)
         self._cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(self._cancel_btn)
-        btn_row.addStretch()
+        self.add_footer_button(self._cancel_btn)
 
-        self._submit_btn = GlowButton(" Reset Password & Unlock")
-        self._submit_btn.setIcon(icons.get_icon("unlock", color=Colors.TEXT_PRIMARY, active_color=Colors.TEXT_PRIMARY))
+        self._submit_btn = PrimaryButton("Reset Password & Unlock", icon_name="unlock", parent=self)
         self._submit_btn.clicked.connect(self._on_submit)
-        btn_row.addWidget(self._submit_btn)
-        layout.addLayout(btn_row)
+        self.add_footer_button(self._submit_btn)
 
         self.adjustSize()
 
     def _on_mode_toggled(self, reset_mode: bool) -> None:
         self._pw_container.setVisible(reset_mode)
-        self._submit_btn.setText(" Reset Password & Unlock" if reset_mode else " Unlock with Key")
+        self._submit_btn.setText("Reset Password & Unlock" if reset_mode else "Unlock with Key")
         self._error_lbl.setText("")
         self.adjustSize()
 
@@ -571,11 +490,11 @@ class ForgotPasswordDialog(QDialog):
         self._reset_check.setEnabled(not busy)
         if busy:
             self._submit_btn.setText(
-                " Verifying & resetting password…" if self._reset_check.isChecked() else " Verifying recovery key…"
+                "Verifying & resetting…" if self._reset_check.isChecked() else "Verifying recovery key…"
             )
         else:
             self._submit_btn.setText(
-                " Reset Password & Unlock" if self._reset_check.isChecked() else " Unlock with Key"
+                "Reset Password & Unlock" if self._reset_check.isChecked() else "Unlock with Key"
             )
 
     def _on_submit(self) -> None:
@@ -648,7 +567,7 @@ class ForgotPasswordDialog(QDialog):
         if self._worker:
             self._worker.wait(2000)
         self._set_busy(False)
-        self._error_lbl.setText(f"⚠ {msg}")
+        self._error_lbl.setText(msg)
         if self._lockout:
             QTimer.singleShot(50, self._capture_intruder_photo)
 
@@ -680,7 +599,7 @@ class ForgotPasswordDialog(QDialog):
         if self._worker:
             self._worker.wait(2000)
         self._set_busy(False)
-        self._error_lbl.setText(f"⚠ {msg}")
+        self._error_lbl.setText(msg)
 
     def get_result(self) -> tuple[Optional[bytearray], bool]:
         return self._master_key, self._password_reset
@@ -774,23 +693,23 @@ class LoginScreen(QWidget):
             self._stage,
         )
         self._title_lbl.setTextFormat(Qt.TextFormat.RichText)
-        self._title_lbl.setFont(LoginTypography.font(26, QFont.Weight.DemiBold))
+        self._title_lbl.setFont(LoginTypography.font(Tokens.type.LOGIN_TITLE, QFont.Weight.DemiBold))
         self._title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._title_lbl.setMinimumHeight(38)
+        self._title_lbl.setMinimumHeight(40)
         self._title_lbl.setStyleSheet(
-            "background: transparent; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif; "
-            "font-size: 26px; font-weight: 600;"
+            "background: transparent; font-family: 'Inter', 'Segoe UI Variable', sans-serif; "
+            f"font-size: {Tokens.type.LOGIN_TITLE}px; font-weight: 600;"
         )
         self._stage_lay.addWidget(self._title_lbl)
         self._stage_lay.addSpacing(4)
 
         self._subtitle_lbl = QLabel("Your private files, securely stored.", self._stage)
-        self._subtitle_lbl.setFont(LoginTypography.font(13, QFont.Weight.Normal))
+        self._subtitle_lbl.setFont(LoginTypography.font(Tokens.type.BODY, QFont.Weight.Normal))
         self._subtitle_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._subtitle_lbl.setMinimumHeight(18)
         self._subtitle_lbl.setStyleSheet(
             f"color: {LoginColors.SUBTITLE}; background: transparent; "
-            "font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif; font-size: 13px; font-weight: 400;"
+            f"font-family: 'Inter', 'Segoe UI Variable', sans-serif; font-size: {Tokens.type.BODY}px; font-weight: 400;"
         )
         self._stage_lay.addWidget(self._subtitle_lbl)
         self._stage_lay.addSpacing(10)
@@ -805,12 +724,12 @@ class LoginScreen(QWidget):
         self._stage_lay.addLayout(div_row)
         self._stage_lay.addSpacing(16)
 
-        # ── Central Smoked-Glass Login Card ────────────────────────────────
+        # ── Central Card (400px clean surface on quiet #0B0D12 backdrop) ───
         self._card = LoginCard(self._stage)
-        self._card.setFixedWidth(428)
+        self._card.setFixedWidth(400)
 
         card_lay = QVBoxLayout(self._card)
-        card_lay.setContentsMargins(28, 16, 28, 14)
+        card_lay.setContentsMargins(24, 20, 24, 18)
         card_lay.setSpacing(0)
 
         # Master Password Label Row
@@ -906,21 +825,22 @@ class LoginScreen(QWidget):
         card_lay.addLayout(rec_row)
 
         self._switch_btn = QPushButton("Switch Vault", self._card)
-        self._switch_btn.setFont(LoginTypography.font(10, QFont.Weight.Medium))
+        self._switch_btn.setFont(LoginTypography.font(11, QFont.Weight.Medium))
         self._switch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._switch_btn.setToolTip("Open or configure a vault at another folder location")
-        self._switch_btn.setStyleSheet("""
-            QPushButton {
+        self._switch_btn.setAccessibleName("Switch Vault")
+        self._switch_btn.setStyleSheet(f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
                 color: transparent;
                 font-size: 11px;
                 padding: 0px;
-                min-height: 14px;
-            }
-            QPushButton:hover, QPushButton:focus {
+                min-height: 16px;
+            }}
+            QPushButton:hover, QPushButton:focus {{
                 color: {LoginColors.LINK_HOVER};
-            }
+            }}
         """)
         self._switch_btn.clicked.connect(self.switch_vault_requested.emit)
 
@@ -972,29 +892,29 @@ class LoginScreen(QWidget):
         w = self.width()
         h = self.height()
 
-        # Adapt card width gracefully to narrow/wide windows while clamping clean bounds
-        target_card_w = max(360, min(428, w - 48))
+        # Adapt card width gracefully (400px target, clamped 360..400px)
+        target_card_w = max(360, min(400, w - 48))
         self._card.setFixedWidth(target_card_w)
-        self._divider.setFixedWidth(min(320, max(220, target_card_w - 60)))
+        self._divider.setFixedWidth(min(280, max(200, target_card_w - 60)))
 
-        # Adapt typography & padding proportionally on short windows (720p at 150-200% DPI)
+        # Keep exact 28px Login Title scale (or slightly tighter 24px on tiny windows)
         if h < 660:
-            title_fs = 26
-            sub_fs = 13
+            title_fs = 24
+            sub_fs = 12
             self._stage_lay.setContentsMargins(16, 8, 16, 8)
         else:
-            title_fs = 30
-            sub_fs = 14
-            self._stage_lay.setContentsMargins(20, 14, 20, 14)
+            title_fs = Tokens.type.LOGIN_TITLE
+            sub_fs = Tokens.type.BODY
+            self._stage_lay.setContentsMargins(24, 16, 24, 16)
 
         self._title_lbl.setStyleSheet(
-            "background: transparent; font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif; "
+            "background: transparent; font-family: 'Inter', 'Segoe UI Variable', sans-serif; "
             f"font-size: {title_fs}px; font-weight: 600;"
         )
         self._title_lbl.setMinimumHeight(int(title_fs * 1.45))
         self._subtitle_lbl.setStyleSheet(
             f"color: {LoginColors.SUBTITLE}; background: transparent; "
-            f"font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif; font-size: {sub_fs}px; font-weight: 400;"
+            f"font-family: 'Inter', 'Segoe UI Variable', sans-serif; font-size: {sub_fs}px; font-weight: 400;"
         )
         self._subtitle_lbl.setMinimumHeight(int(sub_fs * 1.4))
 
