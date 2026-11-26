@@ -45,6 +45,7 @@ from mylocker.app.system.hider import exclude_from_search_indexing, hide_vault_d
 from mylocker.app.system.lock_controller import get_lock_controller
 from mylocker.app.system.privacy_cleanup import ClipboardWiper
 from mylocker.app.system.tray import VaultTrayIcon
+from mylocker.app.ui.design_system import apply_theme
 from mylocker.app.ui.login import LoginScreen
 from mylocker.app.ui.theme import apply_dark_theme
 
@@ -161,6 +162,15 @@ class PersonalVaultApp:
                 pass
         self.lockout = LockoutManager(self.vault_dir, signing_key)
         self.settings = SettingsStore(self.vault_dir, signing_key, auto_create=has_config)
+        self._apply_appearance_from_settings()
+        self._scheme_connected = False
+        try:
+            hints = self.app.styleHints() if hasattr(self.app, "styleHints") else None
+            if hints is not None and hasattr(hints, "colorSchemeChanged"):
+                hints.colorSchemeChanged.connect(self._on_system_color_scheme_changed)
+                self._scheme_connected = True
+        except Exception:
+            pass
 
         # Central Lock Controller coordination (single owner of idle & panic hotkey listeners)
         self.lock_controller = get_lock_controller()
@@ -217,7 +227,10 @@ class PersonalVaultApp:
         self.stack.show()
 
         # Defer heavy/background initialization (hotkey, AppLock supervisor, directory hardening)
-        QTimer.singleShot(250, self._post_startup_init)
+        self._post_init_timer = QTimer(self.stack)
+        self._post_init_timer.setSingleShot(True)
+        self._post_init_timer.timeout.connect(self._post_startup_init)
+        self._post_init_timer.start(250)
 
     def _post_startup_init(self) -> None:
         """Start panic hotkey, App Lock supervisor, and background hardening without delaying window show."""
@@ -309,9 +322,20 @@ class PersonalVaultApp:
         if self._dashboard is not None and hasattr(self._dashboard, "set_screenshot_protection"):
             self._dashboard.set_screenshot_protection(ss_enabled)
 
+        self._apply_appearance_from_settings()
         self._apply_tray_mode()
         if self._calc_disguise:
             self._calc_disguise.secret_code = str(self.settings.get("calculator_disguise_pin", "1337"))
+
+    def _apply_appearance_from_settings(self) -> None:
+        mode = str(self.settings.get("appearance", "dark")).lower()
+        if mode not in ("dark", "light", "system"):
+            mode = "dark"
+        apply_theme(self.app, mode)
+
+    def _on_system_color_scheme_changed(self, *_args) -> None:
+        if str(self.settings.get("appearance", "dark")).lower() == "system":
+            apply_theme(self.app, "system")
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
@@ -349,6 +373,7 @@ class PersonalVaultApp:
                 pass
         self.lockout = LockoutManager(self.vault_dir, signing_key)
         self.settings = SettingsStore(self.vault_dir, signing_key, auto_create=has_config)
+        self._apply_appearance_from_settings()
 
         if self._setup_wizard:
             self._setup_wizard.set_vault_dir(self.vault_dir)
@@ -506,6 +531,21 @@ class PersonalVaultApp:
         return self.lock_controller._hotkey_manager
 
     def _on_stack_destroyed(self) -> None:
+        if hasattr(self, "_post_init_timer") and self._post_init_timer is not None:
+            try:
+                import shiboken6
+                if shiboken6.isValid(self._post_init_timer):
+                    self._post_init_timer.stop()
+            except Exception:
+                pass
+        if getattr(self, "_scheme_connected", False):
+            self._scheme_connected = False
+            try:
+                hints = self.app.styleHints() if hasattr(self.app, "styleHints") else None
+                if hints is not None and hasattr(hints, "colorSchemeChanged"):
+                    hints.colorSchemeChanged.disconnect(self._on_system_color_scheme_changed)
+            except Exception:
+                pass
         if not getattr(self, "_lock_connected", False):
             return
         self._lock_connected = False

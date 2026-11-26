@@ -431,6 +431,21 @@ class FileCard(AnimatedCard):
         self._entry.thumbnail_b64 = thumb_b64
         self._render_thumbnail(thumb_b64)
 
+    def refresh_theme(self) -> None:
+        """Update card styles and vector badges when global Dark/Light theme changes."""
+        p = Tokens.colors
+        self.setStyleSheet(self._card_qss())
+        if hasattr(self, "_more_btn"):
+            self._more_btn.setIcon(icons.get_icon("more_vertical", color=p.text_muted, size=14))
+        if hasattr(self, "_video_play_badge"):
+            self._video_play_badge.setStyleSheet(
+                f"background: {p.overlay}; border: 1px solid {p.border_strong}; border-radius: 14px;"
+            )
+            self._video_play_badge.setPixmap(icons.get_pixmap("play", p.text, size=14))
+        if not self._entry.thumbnail_b64:
+            self._render_thumbnail(None)
+        self._apply_selection_visuals(force=True)
+
     def _apply_selection_visuals(self, force: bool = False) -> None:
         sel_val = "true" if self._selected else "false"
         if force or self.property("selected") != sel_val:

@@ -115,7 +115,8 @@ def test_settings_ui_has_category_list_toggles_and_bottom_danger_zone(qtbot, tmp
 
     ui = SettingsUI(_Vault(), _KS(), settings_store=None)
     qtbot.addWidget(ui)
-    assert ui._cat_list.count() == 6
+    assert ui._cat_list.count() == 7
+    assert any(ui._cat_list.item(i).text() == "Appearance" for i in range(ui._cat_list.count()))
     assert ui._cat_list.item(ui._cat_list.count() - 1).text() == "Danger Zone"
     assert isinstance(ui.lock_minimize_check, Toggle)
     assert isinstance(ui.screen_protect_check, Toggle)

@@ -49,7 +49,7 @@ from PySide6.QtWidgets import (
 from ..core.password_policy import validate_password
 from . import icons
 from .components import DialogShell, PrimaryButton, SecondaryButton
-from .design_system import Tokens
+from .design_system import ThemePalette, Tokens
 from .login_theme import (
     AmbientLoginBackdrop,
     DividerWithSparkle,
@@ -328,6 +328,7 @@ class ForgotPasswordDialog(DialogShell):
         self._worker: Optional[RecoveryWorker] = None
         self._master_key: Optional[bytearray] = None
         self._password_reset: bool = False
+        self._closed: bool = False
         self._photo_threads: list[QThread] = []
         super().__init__(
             title="Recover Access & Reset Password",
@@ -338,6 +339,9 @@ class ForgotPasswordDialog(DialogShell):
             min_width=480,
             max_width=560,
         )
+        self._photo_timer = QTimer(self)
+        self._photo_timer.setSingleShot(True)
+        self._photo_timer.timeout.connect(self._capture_intruder_photo)
         self._setup_ui()
 
     def _attach_eye_toggle(self, line_edit: QLineEdit) -> None:
@@ -569,13 +573,16 @@ class ForgotPasswordDialog(DialogShell):
             self._worker.wait(2000)
         self._set_busy(False)
         self._error_lbl.setText(msg)
-        if self._lockout:
-            QTimer.singleShot(50, self._capture_intruder_photo)
+        if self._lockout and not self._closed:
+            self._photo_timer.start(50)
 
     def _capture_intruder_photo(self) -> None:
-        if not self._lockout:
+        if self._closed or not self._lockout:
             return
         try:
+            import shiboken6
+            if not shiboken6.isValid(self):
+                return
             from ..system.webcam import IntruderPhotoCaptureThread
             thread = IntruderPhotoCaptureThread(self._lockout.vault_dir, self._lockout, parent=self)
             self._photo_threads.append(thread)
@@ -586,14 +593,32 @@ class ForgotPasswordDialog(DialogShell):
         except Exception as exc:
             logger.warning("Failed to start background intruder capture thread: %s", exc)
 
-    def closeEvent(self, event) -> None:
+    def _cleanup_threads(self) -> None:
+        self._closed = True
+        if hasattr(self, "_photo_timer") and self._photo_timer.isActive():
+            self._photo_timer.stop()
+        if self._worker is not None:
+            try:
+                import shiboken6
+                if shiboken6.isValid(self._worker) and self._worker.isRunning():
+                    self._worker.wait(2000)
+            except Exception:
+                pass
         for th in list(self._photo_threads):
             try:
-                if th.isRunning():
-                    th.wait(1000)
+                import shiboken6
+                if shiboken6.isValid(th) and th.isRunning():
+                    th.wait(2000)
             except Exception:
                 pass
         self._photo_threads.clear()
+
+    def done(self, result: int) -> None:
+        self._cleanup_threads()
+        super().done(result)
+
+    def closeEvent(self, event) -> None:
+        self._cleanup_threads()
         super().closeEvent(event)
 
     def _on_worker_error(self, msg: str) -> None:
@@ -634,12 +659,77 @@ class LoginScreen(QWidget):
         self._success_timer = QTimer(self)
         self._success_timer.setSingleShot(True)
         self._success_timer.timeout.connect(self._emit_pending_success)
+        self._photo_timer = QTimer(self)
+        self._photo_timer.setSingleShot(True)
+        self._photo_timer.timeout.connect(self._capture_intruder_photo)
+        self._cleaned_up = False
         self._pending_success: Optional[tuple[object, bool]] = None
         self._worker: Optional[LoginWorker] = None
         self._photo_threads: list[QThread] = []
         self.last_unlock_seconds: float = 0.0
 
         self._setup_ui()
+        Tokens.subscribe(self._on_theme_changed)
+        self.destroyed.connect(self._cleanup_theme_sub)
+
+    def _cleanup_theme_sub(self) -> None:
+        Tokens.unsubscribe(self._on_theme_changed)
+
+    def _on_theme_changed(self, _pal: ThemePalette) -> None:
+        self.setStyleSheet(f"#LoginScreen {{ background: {LoginColors.BG_PRIMARY}; }}")
+        if hasattr(self, "_title_lbl"):
+            self._title_lbl.setText(
+                f"<span style='color:{LoginColors.TITLE_PERSONAL};'>Personal</span> "
+                f"<span style='color:{LoginColors.TITLE_VAULT};'>Vault</span>"
+            )
+        if hasattr(self, "_subtitle_lbl"):
+            self._subtitle_lbl.setStyleSheet(
+                f"color: {LoginColors.SUBTITLE}; background: transparent; "
+                f"font-family: 'Inter', 'Segoe UI Variable', sans-serif; "
+                f"font-size: {self._subtitle_lbl.font().pixelSize() or Tokens.type.BODY}px; font-weight: 400;"
+            )
+        if hasattr(self, "_pw_hdr_ico"):
+            self._pw_hdr_ico.setPixmap(icons.get_pixmap("lock", size=15, color=LoginColors.ICE_BLUE))
+        if hasattr(self, "_pw_title_lbl"):
+            self._pw_title_lbl.setStyleSheet(
+                f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;"
+            )
+        if hasattr(self, "_kf_hdr_ico"):
+            self._kf_hdr_ico.setPixmap(icons.get_pixmap("key", size=15, color=LoginColors.ICE_BLUE))
+        if hasattr(self, "_kf_title_lbl"):
+            self._kf_title_lbl.setStyleSheet(
+                f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;"
+            )
+        if hasattr(self, "_pw_field"):
+            self._pw_field.sync_eye_icon_from_mode()
+        if hasattr(self, "_kf_widget"):
+            self._kf_widget._on_path_text_changed(self._kf_edit.text())
+        if hasattr(self, "_recovery_btn"):
+            self._recovery_btn.setIcon(
+                icons.get_icon("key", color=LoginColors.RECOVERY_BLUE, active_color=LoginColors.ICE_BLUE, size=15)
+            )
+            self._recovery_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: 2px solid transparent;
+                    border-radius: {Tokens.radius.CONTROL}px;
+                    color: {LoginColors.RECOVERY_BLUE};
+                    font-size: 14px;
+                    font-weight: 500;
+                    padding: 2px 8px;
+                    min-height: 22px;
+                }}
+                QPushButton:hover {{ color: {LoginColors.ICE_BLUE}; }}
+                QPushButton:focus {{ border: 2px solid {Tokens.colors.accent}; color: {LoginColors.ICE_BLUE}; }}
+            """)
+        if hasattr(self, "_status_badge"):
+            self._status_badge.set_protection_active(self._status_badge._active)
+        if hasattr(self, "_unlock_btn"):
+            self._unlock_btn.update()
+        if hasattr(self, "_card"):
+            self._card.update()
+        if hasattr(self, "_backdrop"):
+            self._backdrop.update()
 
     def _is_reduced_motion(self) -> bool:
         return is_reduced_motion(self._settings)
@@ -736,15 +826,15 @@ class LoginScreen(QWidget):
         # Master Password Label Row
         pw_hdr = QHBoxLayout()
         pw_hdr.setSpacing(8)
-        pw_ico = QLabel(self._card)
-        pw_ico.setFixedSize(16, 16)
-        pw_ico.setPixmap(icons.get_pixmap("lock", size=15, color=LoginColors.ICE_BLUE))
-        pw_ico.setStyleSheet("background: transparent;")
-        pw_title = QLabel("Master Password", self._card)
-        pw_title.setFont(LoginTypography.font(14, QFont.Weight.DemiBold))
-        pw_title.setStyleSheet(f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;")
-        pw_hdr.addWidget(pw_ico)
-        pw_hdr.addWidget(pw_title)
+        self._pw_hdr_ico = QLabel(self._card)
+        self._pw_hdr_ico.setFixedSize(16, 16)
+        self._pw_hdr_ico.setPixmap(icons.get_pixmap("lock", size=15, color=LoginColors.ICE_BLUE))
+        self._pw_hdr_ico.setStyleSheet("background: transparent;")
+        self._pw_title_lbl = QLabel("Master Password", self._card)
+        self._pw_title_lbl.setFont(LoginTypography.font(14, QFont.Weight.DemiBold))
+        self._pw_title_lbl.setStyleSheet(f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;")
+        pw_hdr.addWidget(self._pw_hdr_ico)
+        pw_hdr.addWidget(self._pw_title_lbl)
         pw_hdr.addStretch()
         card_lay.addLayout(pw_hdr)
         card_lay.addSpacing(4)
@@ -760,14 +850,14 @@ class LoginScreen(QWidget):
         # Key File Label Row
         kf_hdr = QHBoxLayout()
         kf_hdr.setSpacing(8)
-        kf_ico = QLabel(self._card)
-        kf_ico.setFixedSize(16, 16)
-        kf_ico.setPixmap(icons.get_pixmap("key", size=15, color=LoginColors.ICE_BLUE))
-        kf_ico.setStyleSheet("background: transparent;")
+        self._kf_hdr_ico = QLabel(self._card)
+        self._kf_hdr_ico.setFixedSize(16, 16)
+        self._kf_hdr_ico.setPixmap(icons.get_pixmap("key", size=15, color=LoginColors.ICE_BLUE))
+        self._kf_hdr_ico.setStyleSheet("background: transparent;")
         self._kf_title_lbl = QLabel("Key File", self._card)
         self._kf_title_lbl.setFont(LoginTypography.font(14, QFont.Weight.DemiBold))
         self._kf_title_lbl.setStyleSheet(f"color: {LoginColors.TEXT_TITLE}; background: transparent; font-size: 14px; font-weight: 600;")
-        kf_hdr.addWidget(kf_ico)
+        kf_hdr.addWidget(self._kf_hdr_ico)
         kf_hdr.addWidget(self._kf_title_lbl)
         kf_hdr.addStretch()
         card_lay.addLayout(kf_hdr)
@@ -989,6 +1079,8 @@ class LoginScreen(QWidget):
 
     def _stop_animations_and_timers(self) -> None:
         self._stop_pending_transition()
+        if hasattr(self, "_photo_timer") and self._photo_timer.isActive():
+            self._photo_timer.stop()
         if self._lockout_timer is not None:
             self._lockout_timer.stop()
         self._backdrop.stop_ambient()
@@ -1000,6 +1092,7 @@ class LoginScreen(QWidget):
 
     def cleanup(self) -> None:
         """Stop all timers/animations and clean background resources deterministically."""
+        self._cleaned_up = True
         self._stop_animations_and_timers()
         worker = self._worker
         self._worker = None
@@ -1184,8 +1277,8 @@ class LoginScreen(QWidget):
 
         # Intruder Webcam Capture on failed attempt:
         # Always capture a photo whenever ANYONE enters a wrong password
-        if self._lockout:
-            QTimer.singleShot(50, self._capture_intruder_photo)
+        if self._lockout and not self._cleaned_up:
+            self._photo_timer.start(50)
 
         # Optional Auto Self-Destruct after 20 failures (only if explicitly enabled)
         if (
@@ -1201,9 +1294,12 @@ class LoginScreen(QWidget):
                 pass
 
     def _capture_intruder_photo(self) -> None:
-        if not self._lockout:
+        if self._cleaned_up or not self._lockout:
             return
         try:
+            import shiboken6
+            if not shiboken6.isValid(self):
+                return
             from ..system.webcam import IntruderPhotoCaptureThread
             thread = IntruderPhotoCaptureThread(self._lockout.vault_dir, self._lockout, parent=self)
             self._photo_threads.append(thread)

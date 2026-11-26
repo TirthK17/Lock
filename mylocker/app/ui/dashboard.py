@@ -660,7 +660,9 @@ class Dashboard(QMainWindow):
         if hasattr(self, "_protection_status") and self._protection_status is not None:
             self._protection_status.refresh_theme()
         for card in self._cards_by_id.values():
-            card.setStyleSheet(card._card_qss())
+            card.refresh_theme()
+        if hasattr(self, "_list_view") and self._list_view.viewport() is not None:
+            self._list_view.viewport().update()
 
     def _build_ui(self) -> None:
         self._central = QWidget()

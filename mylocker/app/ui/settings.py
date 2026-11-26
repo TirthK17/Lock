@@ -44,9 +44,10 @@ from .components import (
     PrimaryButton,
     SecondaryButton,
     SectionHeader,
+    SegmentedControl,
     Toggle,
 )
-from .design_system import ThemePalette, Tokens
+from .design_system import ThemePalette, Tokens, apply_theme
 from .widgets import ProgressOverlay, SmoothScrollArea
 
 logger = logging.getLogger(__name__)
@@ -158,8 +159,18 @@ class SettingsUI(QWidget):
         self.settings.set(key, val)
         self.settings_updated.emit()
 
+    def _on_appearance_changed(self, mode: str) -> None:
+        chosen = mode if mode in ("dark", "light", "system") else "dark"
+        self.settings.set("appearance", chosen)
+        apply_theme(QApplication.instance(), chosen)
+        self.settings_updated.emit()
+
     def _load_stored_settings(self) -> None:
         self.idle_spin.setValue(int(self.settings.get("idle_timeout_minutes", 5)))
+        appearance = str(self.settings.get("appearance", "dark")).lower()
+        if appearance not in ("dark", "light", "system"):
+            appearance = "dark"
+        self.appearance_switch.set_current(appearance, emit_signal=False)
         self.lock_minimize_check.setChecked(bool(self.settings.get("lock_on_minimize", True)))
         self.screen_protect_check.setChecked(bool(self.settings.get("screenshot_protection", True)))
         self.clipboard_wipe_check.setChecked(int(self.settings.get("clipboard_wipe_seconds", 30)) > 0)
@@ -172,6 +183,7 @@ class SettingsUI(QWidget):
         self.destruct_check.blockSignals(False)
 
         self.idle_spin.valueChanged.connect(lambda v: self._on_setting_changed("idle_timeout_minutes", v))
+        self.appearance_switch.selection_changed.connect(self._on_appearance_changed)
         self.lock_minimize_check.toggled.connect(lambda c: self._on_setting_changed("lock_on_minimize", c))
         self.screen_protect_check.toggled.connect(lambda c: self._on_setting_changed("screenshot_protection", c))
         self.clipboard_wipe_check.toggled.connect(lambda c: self._on_setting_changed("clipboard_wipe_seconds", 30 if c else 0))
@@ -274,6 +286,25 @@ class SettingsUI(QWidget):
         )
         layout.addWidget(sec_card)
         self._register_section("Security & Auto-Lock", sec_card)
+
+        # ── Appearance ──
+        app_card, app_layout = self._create_card("Appearance")
+        self.appearance_switch = SegmentedControl(
+            [("dark", "Dark", "moon"), ("light", "Light", "sun"), ("system", "System", "monitor")],
+            current="dark",
+            parent=app_card,
+        )
+        self.appearance_switch.setAccessibleName("Appearance theme")
+        app_layout.addWidget(
+            ListRow(
+                "Theme",
+                "Choose Dark (default), Light, or match Windows system appearance.",
+                self.appearance_switch,
+                parent=app_card,
+            )
+        )
+        layout.addWidget(app_card)
+        self._register_section("Appearance", app_card)
 
         # ── 2. Stealth & Disguise ──
         stealth_card, stealth_layout = self._create_card("Stealth & Disguise")
