@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -42,13 +42,13 @@ class TitleAreaBar(QFrame):
         lay.addWidget(self.page_title_lbl)
 
         self.unlocked_badge = VaultUnlockedBadge(self)
-        self.unlocked_badge.setFixedHeight(24)
+        self.unlocked_badge.setMinimumHeight(24)
         lay.addWidget(self.unlocked_badge)
 
         lay.addStretch(1)
 
         self.ss_btn = QPushButton(" Protected", self)
-        self.ss_btn.setFixedHeight(26)
+        self.ss_btn.setMinimumHeight(26)
         self.ss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ss_btn.setAccessibleName("Toggle screenshot protection")
         self.ss_btn.clicked.connect(self.screenshot_toggled.emit)
@@ -61,7 +61,21 @@ class TitleAreaBar(QFrame):
 
         Tokens.subscribe(self._on_theme)
         self.destroyed.connect(self._cleanup_sub)
+        self._sync_height_for_font()
         self.refresh_theme(screenshot_blocked=True)
+
+    def _sync_height_for_font(self) -> None:
+        fm_h = self.fontMetrics().height()
+        if fm_h > 20:
+            self.setMinimumHeight(max(36, fm_h + 14))
+            self.setMaximumHeight(16777215)
+        else:
+            self.setFixedHeight(36)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.ApplicationFontChange):
+            self._sync_height_for_font()
 
     def _cleanup_sub(self) -> None:
         Tokens.unsubscribe(self._on_theme)
@@ -157,7 +171,7 @@ class WorkspaceToolbar(QFrame):
         # Sort selector
         self.sort_combo = QComboBox(self)
         self.sort_combo.addItems(["Sort: Recent", "Sort: Name", "Sort: Size", "Sort: Type"])
-        self.sort_combo.setFixedHeight(34)
+        self.sort_combo.setMinimumHeight(34)
         self.sort_combo.setMinimumWidth(116)
         self.sort_combo.setAccessibleName("Sort files")
         self.sort_combo.currentIndexChanged.connect(self.sort_changed.emit)
@@ -170,7 +184,7 @@ class WorkspaceToolbar(QFrame):
 
         # Primary + Add CTA
         self.add_btn = PrimaryButton("Add", icon_name="plus", parent=self)
-        self.add_btn.setFixedHeight(34)
+        self.add_btn.setMinimumHeight(34)
         self.add_btn.setMinimumWidth(84)
         self.add_btn.setIconSize(QSize(16, 16))
         self.add_btn.setToolTip("Add files or folder to vault")

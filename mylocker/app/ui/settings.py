@@ -196,16 +196,20 @@ class SettingsUI(QWidget):
 
         # Left Category Rail
         self._cat_list = QListWidget(self)
-        self._cat_list.setFixedWidth(180)
+        self._cat_list.setFixedWidth(164)
+        self._cat_list.setWordWrap(True)
+        self._cat_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._cat_list.setAccessibleName("Settings categories")
         body_split.addWidget(self._cat_list, 0, Qt.AlignmentFlag.AlignTop)
 
         # Right Cards Scroll Area
         self._scroll = SmoothScrollArea()
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         container = QWidget()
+        container.setMinimumWidth(0)
         container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 12, 0)
+        layout.setContentsMargins(0, 0, 8, 0)
         layout.setSpacing(16)
 
         # ── 1. Security & Auto-Lock ──
@@ -321,9 +325,9 @@ class SettingsUI(QWidget):
         decoy_layout.addWidget(self._decoy_desc)
 
         setup_decoy_btn = SecondaryButton("Configure Decoy Password", icon_name="shield", parent=decoy_card)
-        setup_decoy_btn.setFixedWidth(232)
+        setup_decoy_btn.setMinimumWidth(180)
         setup_decoy_btn.clicked.connect(self._setup_decoy_dialog)
-        decoy_layout.addWidget(setup_decoy_btn)
+        decoy_layout.addWidget(setup_decoy_btn, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(decoy_card)
         self._register_section("Decoy & Duress", decoy_card)
 
@@ -372,22 +376,38 @@ class SettingsUI(QWidget):
         # ── 5. Backup & Verification ──
         backup_card, backup_layout = self._create_card("Backup & Integrity")
 
-        backup_btns = QHBoxLayout()
-        backup_btns.setSpacing(8)
         export_btn = PrimaryButton("Export Backup", icon_name="download", parent=backup_card)
         export_btn.clicked.connect(self._export_backup)
+        backup_layout.addWidget(
+            ListRow(
+                "Export encrypted backup",
+                "Package your encrypted vault files and metadata into a portable archive.",
+                export_btn,
+                parent=backup_card,
+            )
+        )
 
         restore_btn = SecondaryButton("Restore Backup", icon_name="upload", parent=backup_card)
         restore_btn.clicked.connect(self._restore_backup)
+        backup_layout.addWidget(
+            ListRow(
+                "Restore from backup",
+                "Verify password and restore encrypted files from an existing archive.",
+                restore_btn,
+                parent=backup_card,
+            )
+        )
 
         verify_btn = SecondaryButton("Verify Integrity", icon_name="shield_check", parent=backup_card)
         verify_btn.clicked.connect(self._verify_vault)
-
-        backup_btns.addWidget(export_btn)
-        backup_btns.addWidget(restore_btn)
-        backup_btns.addWidget(verify_btn)
-        backup_btns.addStretch(1)
-        backup_layout.addLayout(backup_btns)
+        backup_layout.addWidget(
+            ListRow(
+                "Verify vault integrity",
+                "Check all stored files against their AES-256-GCM authentication tags.",
+                verify_btn,
+                parent=backup_card,
+            )
+        )
         layout.addWidget(backup_card)
         self._register_section("Backup & Integrity", backup_card)
 
@@ -421,9 +441,9 @@ class SettingsUI(QWidget):
         )
 
         destruct_btn = DangerButton("Destroy Vault Now", icon_name="alert_triangle", parent=destruct_card)
-        destruct_btn.setFixedWidth(210)
+        destruct_btn.setMinimumWidth(180)
         destruct_btn.clicked.connect(self._confirm_self_destruct_dialog)
-        destruct_layout.addWidget(destruct_btn)
+        destruct_layout.addWidget(destruct_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
         layout.addWidget(destruct_card)
         layout.addStretch(1)

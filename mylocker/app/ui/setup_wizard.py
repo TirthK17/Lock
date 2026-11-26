@@ -125,17 +125,17 @@ class SetupWizard(QWidget):
         root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(16)
 
-        # 5-step progress indicator bar at top
+        # 5-step progress indicator bar at top (wraps gracefully at narrow / scaled widths)
         self._dots_row = QHBoxLayout()
         self._dots_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._dots_row.setSpacing(8)
+        self._dots_row.setSpacing(6)
         self._dots: list[QLabel] = []
         for idx, step_name in enumerate(self._STEP_TITLES):
             pill = QLabel(f"{idx + 1}. {step_name}", self)
             pill.setFont(Tokens.type.font(Tokens.type.META, Tokens.type.WEIGHT_LABEL))
             pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            pill.setMinimumWidth(82)
-            pill.setFixedHeight(26)
+            pill.setMinimumWidth(72)
+            pill.setMinimumHeight(26)
             self._dots.append(pill)
             self._dots_row.addWidget(pill)
         root.addLayout(self._dots_row)
@@ -202,7 +202,7 @@ class SetupWizard(QWidget):
         self._loc_edit.setReadOnly(True)
         self._loc_edit.setAccessibleName("Vault folder path")
         browse_btn = SecondaryButton("Browse…", parent=card)
-        browse_btn.setFixedWidth(96)
+        browse_btn.setMinimumWidth(96)
         browse_btn.clicked.connect(self._browse_vault_dir)
         loc_row.addWidget(self._loc_edit, 1)
         loc_row.addWidget(browse_btn)
@@ -216,7 +216,7 @@ class SetupWizard(QWidget):
         lay.addSpacing(8)
 
         self._next_btn_0 = PrimaryButton("Continue", icon_name="chevron_right", parent=card)
-        self._next_btn_0.setFixedHeight(42)
+        self._next_btn_0.setMinimumHeight(42)
         self._next_btn_0.clicked.connect(lambda: self._go(1))
         lay.addWidget(self._next_btn_0)
         return self._page(card)
@@ -350,7 +350,7 @@ class SetupWizard(QWidget):
         self._kf_edit.setAccessibleName("Key file path")
         self._kf_edit.setEnabled(False)
         self._kf_browse = SecondaryButton("Browse…", parent=card)
-        self._kf_browse.setFixedWidth(96)
+        self._kf_browse.setMinimumWidth(96)
         self._kf_browse.setEnabled(False)
         self._kf_browse.clicked.connect(self._browse_keyfile)
         self._kf_row.addWidget(self._kf_edit, 1)

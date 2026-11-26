@@ -39,6 +39,7 @@ from .components import (
     DialogShell,
     EmptyState,
     ErrorState,
+    FlowLayout,
     PrimaryButton,
     SecondaryButton,
     Spinner,
@@ -151,17 +152,16 @@ class AppLockUI(QWidget):
         self.startup_check.toggled.connect(self._toggle_startup)
         self._startup_lbl = QLabel("Start App Lock at Windows login", opts_card)
         self._startup_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_LABEL))
+        self._startup_lbl.setWordWrap(True)
         opts_layout.addWidget(self.startup_check)
-        opts_layout.addWidget(self._startup_lbl)
-
-        opts_layout.addStretch(1)
+        opts_layout.addWidget(self._startup_lbl, 1)
 
         self._grace_lbl = QLabel("Grace Period (mins):", opts_card)
         self._grace_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
         self.grace_spin = QSpinBox(opts_card)
         self.grace_spin.setRange(0, 60)
         self.grace_spin.setValue(self.config.get_grace_minutes() if self.config else 5)
-        self.grace_spin.setFixedWidth(72)
+        self.grace_spin.setMinimumWidth(72)
         self.grace_spin.setAccessibleName("App Lock grace period in minutes")
         self.grace_spin.valueChanged.connect(self._on_grace_changed)
         opts_layout.addWidget(self._grace_lbl)
@@ -169,9 +169,8 @@ class AppLockUI(QWidget):
 
         layout.addWidget(opts_card)
 
-        # Actions Row
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        # Actions Row (wraps gracefully on compact 900x600 or 150-175% DPI scaling)
+        btn_row = FlowLayout(spacing=8)
         scan_running_btn = SecondaryButton("Scan Running", icon_name="search", parent=self)
         scan_running_btn.clicked.connect(self._scan_running)
 
@@ -187,7 +186,6 @@ class AppLockUI(QWidget):
         btn_row.addWidget(scan_running_btn)
         btn_row.addWidget(self._scan_installed_btn)
         btn_row.addWidget(set_pw_btn)
-        btn_row.addStretch(1)
         btn_row.addWidget(add_manual_btn)
         layout.addLayout(btn_row)
 
@@ -259,7 +257,7 @@ class AppLockUI(QWidget):
             self.table.setCellWidget(row, 1, status_badge)
 
             del_btn = DangerButton("Remove", parent=self.table)
-            del_btn.setFixedSize(90, 30)
+            del_btn.setMinimumSize(90, 30)
             del_btn.clicked.connect(lambda _=False, e=exe: self._remove_app(e))
             self.table.setCellWidget(row, 2, del_btn)
 

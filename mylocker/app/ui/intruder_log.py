@@ -204,7 +204,7 @@ class IntruderLogUI(QWidget):
             # Action button
             if has_photo and photo_file:
                 view_btn = SecondaryButton("View Photo", icon_name="eye", parent=self.table)
-                view_btn.setFixedSize(112, 30)
+                view_btn.setMinimumSize(112, 30)
                 view_btn.clicked.connect(lambda _=False, pf=photo_file: self._view_photo(pf))
                 self.table.setCellWidget(row, 3, view_btn)
             else:

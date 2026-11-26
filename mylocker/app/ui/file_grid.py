@@ -322,6 +322,7 @@ class FileCard(AnimatedCard):
         self._name_lbl.setObjectName("FileName")
         self._name_lbl.setProperty("favorite", "true" if self._entry.is_favorite else "false")
         self._name_lbl.setFont(name_font)
+        self._name_lbl.setToolTip(self._entry.original_name)
         self._name_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         text_col.addWidget(self._name_lbl)
 

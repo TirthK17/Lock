@@ -69,6 +69,7 @@ from .components import (
     DialogShell,
     EmptyState,
     ErrorState,
+    FlowLayout,
     PrimaryButton,
     SecondaryButton,
     SkeletonRow,
@@ -802,9 +803,7 @@ class Dashboard(QMainWindow):
         layout.addLayout(stats_row)
 
         # ── 3. Quick Category Filter Strip + Section Heading ──
-        tabs_row = QHBoxLayout()
-        tabs_row.setContentsMargins(0, 0, 0, 0)
-        tabs_row.setSpacing(8)
+        tabs_row = FlowLayout(spacing=8)
 
         self._pill_all = CategoryPill("grid", "All Files", active=True, parent=page)
         self._pill_photos = CategoryPill("image", "Photos", active=False, parent=page)
@@ -827,7 +826,6 @@ class Dashboard(QMainWindow):
 
         for pill in self._category_pills:
             tabs_row.addWidget(pill)
-        tabs_row.addStretch(1)
 
         self._section_title_lbl = QLabel("All Files", page)
         self._section_title_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
@@ -858,12 +856,12 @@ class Dashboard(QMainWindow):
 
         # Avoid QGraphicsDropShadowEffect inside animated opacity banner
         self._optimize_btn = PrimaryButton("Optimize Speed (~0.25s)", parent=self._speed_banner)
-        self._optimize_btn.setFixedHeight(32)
+        self._optimize_btn.setMinimumHeight(32)
         self._optimize_btn.clicked.connect(self._open_optimize_speed_dialog)
         sb_lay.addWidget(self._optimize_btn)
 
         dismiss_btn = SecondaryButton("Dismiss", parent=self._speed_banner)
-        dismiss_btn.setFixedHeight(32)
+        dismiss_btn.setMinimumHeight(32)
         dismiss_btn.clicked.connect(lambda: self._dismiss_speed_banner(animate=True))
         sb_lay.addWidget(dismiss_btn)
 
@@ -887,7 +885,7 @@ class Dashboard(QMainWindow):
         hb_lay.addWidget(self._hotkey_lbl, 1)
 
         hb_dismiss_btn = SecondaryButton("Dismiss", parent=self._hotkey_banner)
-        hb_dismiss_btn.setFixedHeight(32)
+        hb_dismiss_btn.setMinimumHeight(32)
         hb_dismiss_btn.clicked.connect(self._hotkey_banner.dismiss_animated)
         hb_lay.addWidget(hb_dismiss_btn)
 
@@ -907,23 +905,23 @@ class Dashboard(QMainWindow):
         sel_lay.addStretch()
 
         self._sel_all_btn = SecondaryButton("Select All", parent=self._selection_bar)
-        self._sel_all_btn.setFixedHeight(30)
+        self._sel_all_btn.setMinimumHeight(30)
         self._sel_all_btn.clicked.connect(self._select_all_visible)
         sel_lay.addWidget(self._sel_all_btn)
 
         self._sel_clear_btn = SecondaryButton("Clear", parent=self._selection_bar)
-        self._sel_clear_btn.setFixedHeight(30)
+        self._sel_clear_btn.setMinimumHeight(30)
         self._sel_clear_btn.clicked.connect(lambda: self._clear_selection(exit_mode=False))
         sel_lay.addWidget(self._sel_clear_btn)
 
         self._sel_delete_btn = DangerButton("Delete Selected", icon_name="trash", parent=self._selection_bar)
-        self._sel_delete_btn.setFixedHeight(30)
+        self._sel_delete_btn.setMinimumHeight(30)
         self._sel_delete_btn.setEnabled(False)
         self._sel_delete_btn.clicked.connect(self._delete_selected_files)
         sel_lay.addWidget(self._sel_delete_btn)
 
         self._sel_done_btn = SecondaryButton("Done", parent=self._selection_bar)
-        self._sel_done_btn.setFixedHeight(30)
+        self._sel_done_btn.setMinimumHeight(30)
         self._sel_done_btn.clicked.connect(lambda: self._toggle_selection_mode(False))
         sel_lay.addWidget(self._sel_done_btn)
 

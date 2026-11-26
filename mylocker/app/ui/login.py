@@ -897,10 +897,10 @@ class LoginScreen(QWidget):
         self._card.setFixedWidth(target_card_w)
         self._divider.setFixedWidth(min(280, max(200, target_card_w - 60)))
 
-        # Keep exact 28px Login Title scale (or slightly tighter 24px on tiny windows)
+        # Keep type scale strictly within Tokens (20px compact or 28px login title)
         if h < 660:
-            title_fs = 24
-            sub_fs = 12
+            title_fs = Tokens.type.PAGE_TITLE
+            sub_fs = Tokens.type.LABEL
             self._stage_lay.setContentsMargins(16, 8, 16, 8)
         else:
             title_fs = Tokens.type.LOGIN_TITLE

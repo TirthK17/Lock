@@ -19,6 +19,8 @@ from unittest.mock import Base as _MockBase
 from PySide6.QtCore import (
     Property,
     QEasingCurve,
+    QPoint,
+    QRect,
     QRectF,
     QSize,
     Qt,
@@ -41,11 +43,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLayout,
+    QLayoutItem,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -627,6 +632,8 @@ class ListRow(QFrame):
 
         self.title_lbl = QLabel(title, self)
         self.title_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_LABEL))
+        self.title_lbl.setMinimumWidth(0)
+        self.title_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.title_lbl.setWordWrap(True)
         text_col.addWidget(self.title_lbl)
 
@@ -635,6 +642,8 @@ class ListRow(QFrame):
             self.desc_lbl = QLabel(description, self)
             self.desc_lbl.setProperty("role", "secondary")
             self.desc_lbl.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_BODY))
+            self.desc_lbl.setMinimumWidth(0)
+            self.desc_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
             self.desc_lbl.setWordWrap(True)
             text_col.addWidget(self.desc_lbl)
 
@@ -1278,6 +1287,92 @@ class DialogShell(QDialog):
         return sel, bool(accepted and sel)
 
 
+class FlowLayout(QLayout):
+    """Responsive flow layout wrapping controls onto new rows when width is constrained."""
+
+    def __init__(self, parent: Optional[QWidget] = None, margin: int = 0, spacing: int = 8) -> None:
+        super().__init__(parent)
+        self._items: list[QLayoutItem] = []
+        self._h_space = spacing
+        self._v_space = spacing
+        self.setContentsMargins(margin, margin, margin, margin)
+
+    def __del__(self) -> None:
+        while self._items:
+            self.takeAt(0)
+
+    def addItem(self, item: QLayoutItem) -> None:
+        self._items.append(item)
+
+    def horizontalSpacing(self) -> int:
+        return self._h_space
+
+    def verticalSpacing(self) -> int:
+        return self._v_space
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, index: int) -> Optional[QLayoutItem]:
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index: int) -> Optional[QLayoutItem]:
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self) -> Qt.Orientation:
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        left, top, right, bottom = self.getContentsMargins()
+        size += QSize(left + right, top + bottom)
+        return size
+
+    def _do_layout(self, rect: QRect, test_only: bool) -> int:
+        left, top, right, bottom = self.getContentsMargins()
+        effective = rect.adjusted(left, top, -right, -bottom)
+        x = effective.x()
+        y = effective.y()
+        line_h = 0
+
+        for item in self._items:
+            widget = item.widget()
+            if widget is not None and widget.isHidden():
+                continue
+            item_sz = item.sizeHint()
+            next_x = x + item_sz.width() + self._h_space
+            if next_x - self._h_space > effective.right() + 1 and line_h > 0:
+                x = effective.x()
+                y = y + line_h + self._v_space
+                next_x = x + item_sz.width() + self._h_space
+                line_h = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item_sz))
+            x = next_x
+            line_h = max(line_h, item_sz.height())
+
+        return y + line_h - rect.y() + bottom
+
+
 class TooltipStyle:
     """Applies calm dark/light QToolTip styling from active Tokens."""
 
@@ -1312,6 +1407,7 @@ __all__ = [
     "SectionHeader",
     "Badge",
     "ListRow",
+    "FlowLayout",
     "Spinner",
     "SkeletonRow",
     "EmptyState",

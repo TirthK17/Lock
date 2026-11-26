@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -31,6 +32,16 @@ from PySide6.QtWidgets import (
 
 from . import icons
 from .design_system import Tokens
+
+
+def _current_dpr() -> float:
+    app = QApplication.instance()
+    if app is not None:
+        try:
+            return round(max(1.0, float(app.devicePixelRatio())), 2)
+        except Exception:
+            pass
+    return 1.0
 
 
 def _dash_attr_map() -> dict[str, str]:
@@ -213,7 +224,7 @@ class CategoryPill(QPushButton):
         self._label = label
         self._active = bool(active)
 
-        self.setFixedHeight(32)
+        self.setMinimumHeight(32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFont(Tokens.type.font(Tokens.type.LABEL, Tokens.type.WEIGHT_LABEL))
         self.setAccessibleName(label)
@@ -283,8 +294,9 @@ class DocBadgeGenerator:
     @classmethod
     def get_badge(cls, ext: str, width: int = 180, height: int = 100) -> QPixmap:
         p_theme = Tokens.colors
+        dpr = _current_dpr()
         ext_clean = ext.lower().lstrip(".")
-        cache_key = f"{p_theme.name}_{ext_clean}_{width}_{height}"
+        cache_key = f"{p_theme.name}_{ext_clean}_{width}_{height}_{dpr}"
         if cache_key in cls._CACHE:
             return cls._CACHE[cache_key]
 
@@ -308,8 +320,11 @@ class DocBadgeGenerator:
             badge_label = ext_clean.upper()[:4] if ext_clean else "FILE"
             color_hex = p_theme.text_muted
 
-        img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        px_w = max(1, int(round(width * dpr)))
+        px_h = max(1, int(round(height * dpr)))
+        img = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(Qt.GlobalColor.transparent)
+        img.setDevicePixelRatio(dpr)
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -369,12 +384,16 @@ class MediaBadgeGenerator:
     @classmethod
     def get_image_placeholder(cls, width: int = 164, height: int = 96) -> QPixmap:
         pal = Tokens.colors
-        cache_key = f"{pal.name}_img_{width}_{height}"
+        dpr = _current_dpr()
+        cache_key = f"{pal.name}_img_{width}_{height}_{dpr}"
         if cache_key in cls._CACHE:
             return cls._CACHE[cache_key]
 
-        img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        px_w = max(1, int(round(width * dpr)))
+        px_h = max(1, int(round(height * dpr)))
+        img = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(Qt.GlobalColor.transparent)
+        img.setDevicePixelRatio(dpr)
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -385,23 +404,28 @@ class MediaBadgeGenerator:
         p.setPen(QPen(QColor(255, 255, 255, 16) if pal.is_dark else QColor(0, 0, 0, 18), 1.0))
         p.drawPath(path)
 
-        ico = icons.get_pixmap("image", color=pal.text_muted, size=24)
+        ico = icons.get_pixmap("image", color=pal.text_muted, size=24, dpr=dpr)
         p.drawPixmap(int((width - 24) / 2), int((height - 24) / 2), ico)
         p.end()
 
         pix = QPixmap.fromImage(img)
+        pix.setDevicePixelRatio(dpr)
         cls._CACHE[cache_key] = pix
         return pix
 
     @classmethod
     def get_video_placeholder(cls, width: int = 164, height: int = 96) -> QPixmap:
         pal = Tokens.colors
-        cache_key = f"{pal.name}_vid_{width}_{height}"
+        dpr = _current_dpr()
+        cache_key = f"{pal.name}_vid_{width}_{height}_{dpr}"
         if cache_key in cls._CACHE:
             return cls._CACHE[cache_key]
 
-        img = QImage(width, height, QImage.Format.Format_ARGB32_Premultiplied)
+        px_w = max(1, int(round(width * dpr)))
+        px_h = max(1, int(round(height * dpr)))
+        img = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)
         img.fill(Qt.GlobalColor.transparent)
+        img.setDevicePixelRatio(dpr)
         p = QPainter(img)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -412,11 +436,12 @@ class MediaBadgeGenerator:
         p.setPen(QPen(QColor(255, 255, 255, 16) if pal.is_dark else QColor(0, 0, 0, 18), 1.0))
         p.drawPath(path)
 
-        ico = icons.get_pixmap("video", color=pal.text_muted, size=24)
+        ico = icons.get_pixmap("video", color=pal.text_muted, size=24, dpr=dpr)
         p.drawPixmap(int((width - 24) / 2), int((height - 24) / 2), ico)
         p.end()
 
         pix = QPixmap.fromImage(img)
+        pix.setDevicePixelRatio(dpr)
         cls._CACHE[cache_key] = pix
         return pix
 
@@ -506,11 +531,11 @@ class VaultUnlockedBadge(QFrame):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFixedHeight(36)
+        self.setMinimumHeight(24)
         self.setObjectName("VaultUnlockedBadge")
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 4, 12, 4)
-        lay.setSpacing(8)
+        lay.setContentsMargins(10, 0, 10, 0)
+        lay.setSpacing(6)
 
         self._icon_lbl = QLabel(self)
         self._icon_lbl.setFixedSize(20, 20)
