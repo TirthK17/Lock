@@ -71,6 +71,8 @@ from .components import (
     ErrorState,
     PrimaryButton,
     SecondaryButton,
+    SkeletonRow,
+    Spinner,
     _apply_dialog_shadow,
 )
 from .dashboard_theme import (
@@ -948,6 +950,24 @@ class Dashboard(QMainWindow):
         self._error_state.retry_clicked.connect(lambda: self.load_files(initial=True))
         self._error_state.hide()
 
+        self._loading_box = QWidget(page)
+        load_lay = QVBoxLayout(self._loading_box)
+        load_lay.setContentsMargins(0, 8, 0, 8)
+        load_lay.setSpacing(10)
+        load_hdr = QHBoxLayout()
+        load_hdr.setSpacing(8)
+        self._loading_spinner = Spinner(18, parent=self._loading_box)
+        load_hdr.addWidget(self._loading_spinner)
+        load_lbl = QLabel("Loading encrypted files…", self._loading_box)
+        load_lbl.setProperty("role", "secondary")
+        load_hdr.addWidget(load_lbl)
+        load_hdr.addStretch()
+        load_lay.addLayout(load_hdr)
+        for _ in range(4):
+            load_lay.addWidget(SkeletonRow(self._loading_box))
+        load_lay.addStretch()
+        self._loading_box.hide()
+
         self._scroll = SmoothScrollArea()
         self._scroll.setAcceptDrops(False)
         if self._scroll.viewport():
@@ -974,6 +994,7 @@ class Dashboard(QMainWindow):
         self._list_view.batch_delete_requested.connect(self._delete_selected_files)
         self._list_view.hide()
 
+        layout.addWidget(self._loading_box, 1)
         layout.addWidget(self._error_state)
         layout.addWidget(self._drop_hint, 1)
         layout.addWidget(self._scroll, 1)
@@ -1268,10 +1289,31 @@ class Dashboard(QMainWindow):
             bar.setRange(0, 0)
         bar.show()
 
+    def _set_loading_state(self, loading: bool) -> None:
+        if not hasattr(self, "_loading_box"):
+            return
+        if loading:
+            self._loading_box.show()
+            if hasattr(self, "_loading_spinner"):
+                self._loading_spinner.start()
+            if hasattr(self, "_drop_hint"):
+                self._drop_hint.hide()
+            if hasattr(self, "_error_state"):
+                self._error_state.hide()
+            if hasattr(self, "_scroll"):
+                self._scroll.hide()
+            if hasattr(self, "_list_view"):
+                self._list_view.hide()
+        else:
+            if hasattr(self, "_loading_spinner"):
+                self._loading_spinner.stop()
+            self._loading_box.hide()
+
     def load_files(self, initial: bool = False) -> None:
         """Call after unlock to populate the file grid synchronously (used by tests & refreshes)."""
         if not self._vault:
             return
+        self._set_loading_state(False)
         if hasattr(self, "_error_state"):
             self._error_state.hide()
         try:
@@ -1320,6 +1362,8 @@ class Dashboard(QMainWindow):
         self._status_bar.showMessage("Loading encrypted vault…")
         self._set_status_busy(True, 0, 0)
         do_initial = bool(initial or not getattr(self, "_files_loaded", False))
+        if do_initial:
+            self._set_loading_state(True)
         worker = _VaultLoadWorker(self._vault, self._vault_service, do_initial)
         self._load_worker = worker
 
@@ -1327,6 +1371,7 @@ class Dashboard(QMainWindow):
             self._load_worker = None
             worker.deleteLater()
             self._set_status_busy(False)
+            self._set_loading_state(False)
             if self._cleaned_up or not getattr(self._session, "is_unlocked", False):
                 return
             self._files_loaded = True
@@ -1338,6 +1383,7 @@ class Dashboard(QMainWindow):
             self._load_worker = None
             worker.deleteLater()
             self._set_status_busy(False)
+            self._set_loading_state(False)
             if not self._cleaned_up and getattr(self._session, "is_unlocked", False):
                 self._handle_corrupt_index()
 
@@ -1345,6 +1391,7 @@ class Dashboard(QMainWindow):
             self._load_worker = None
             worker.deleteLater()
             self._set_status_busy(False)
+            self._set_loading_state(False)
             if not self._cleaned_up:
                 self._status_bar.showMessage("Could not load vault index [ERR-IDX-01]", 5000)
                 if hasattr(self, "_error_state"):

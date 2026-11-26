@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from ..core.lockout import LockoutManager
 from ..system.webcam import decrypt_intruder_photo
 from . import icons
-from .components import Badge, DangerButton, DialogShell, EmptyState, SecondaryButton
+from .components import Badge, DangerButton, DialogShell, EmptyState, ErrorState, SecondaryButton
 from .design_system import ThemePalette, Tokens
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,16 @@ class IntruderLogUI(QWidget):
         )
         layout.addWidget(self._empty_state, 1)
 
+        self._error_state = ErrorState(
+            "Could not load intruder log",
+            "The tamper-evident intruder log could not be verified.",
+            retry_text="Retry",
+            parent=self,
+        )
+        self._error_state.retry_clicked.connect(self.refresh_log)
+        self._error_state.hide()
+        layout.addWidget(self._error_state, 1)
+
         # Log Table
         self.table = QTableWidget(self)
         self.table.setColumnCount(4)
@@ -147,8 +157,17 @@ class IntruderLogUI(QWidget):
         layout.addWidget(self.table, 1)
 
     def refresh_log(self) -> None:
-        entries = self.lockout.get_intruder_log()
+        self._error_state.hide()
         self.table.setRowCount(0)
+        try:
+            entries = self.lockout.get_intruder_log()
+        except Exception as exc:
+            logger.warning("Failed to read intruder log: %s", type(exc).__name__)
+            self.table.hide()
+            self._empty_state.hide()
+            self._clear_btn.setEnabled(False)
+            self._error_state.show()
+            return
 
         has_entries = bool(entries)
         self.table.setVisible(has_entries)

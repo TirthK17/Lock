@@ -38,8 +38,10 @@ from .components import (
     DangerButton,
     DialogShell,
     EmptyState,
+    ErrorState,
     PrimaryButton,
     SecondaryButton,
+    Spinner,
     Toggle,
 )
 from .design_system import ThemePalette, Tokens
@@ -189,6 +191,29 @@ class AppLockUI(QWidget):
         btn_row.addWidget(add_manual_btn)
         layout.addLayout(btn_row)
 
+        self._loading_bar = QWidget(self)
+        load_lay = QHBoxLayout(self._loading_bar)
+        load_lay.setContentsMargins(0, 0, 0, 0)
+        load_lay.setSpacing(8)
+        self._scan_spinner = Spinner(16, parent=self._loading_bar)
+        load_lay.addWidget(self._scan_spinner)
+        load_lbl = QLabel("Scanning installed applications…", self._loading_bar)
+        load_lbl.setProperty("role", "secondary")
+        load_lay.addWidget(load_lbl)
+        load_lay.addStretch()
+        self._loading_bar.hide()
+        layout.addWidget(self._loading_bar)
+
+        self._error_state = ErrorState(
+            "Application scan failed",
+            "Could not query installed applications cleanly.",
+            retry_text="Retry Scan",
+            parent=self,
+        )
+        self._error_state.retry_clicked.connect(self._scan_installed)
+        self._error_state.hide()
+        layout.addWidget(self._error_state)
+
         self._empty_state = EmptyState(
             "shield_check",
             "No protected applications",
@@ -305,12 +330,20 @@ class AppLockUI(QWidget):
     def _scan_installed(self) -> None:
         if not self._scan_installed_btn.isEnabled():
             return
+        self._error_state.hide()
+        self._loading_bar.show()
+        self._scan_spinner.start()
         self._scan_installed_btn.setEnabled(False)
         self._scan_installed_btn.setText("Scanning Installed…")
 
         def _on_apps_scanned(apps: object) -> None:
+            self._scan_spinner.stop()
+            self._loading_bar.hide()
             self._scan_installed_btn.setEnabled(True)
             self._scan_installed_btn.setText("Browse Installed")
+            if apps is None:
+                self._error_state.show()
+                return
             if not apps:
                 DialogShell.inform(self, "Installed Apps", "No installed apps catalogued.")
                 return

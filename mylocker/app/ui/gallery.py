@@ -232,7 +232,9 @@ class GalleryViewer(QDialog):
         for btn in (zoom_out, reset_zoom, zoom_in, rotate_btn, self._slideshow_btn, close_btn):
             tb_layout.addWidget(btn)
 
-        # ── Image area ──
+        # ── Image area + loading / error overlay states ──
+        from .components import ErrorState, Spinner
+
         self._img_scroll = QScrollArea(self)
         self._img_scroll.setFrameShape(self._img_scroll.Shape.NoFrame)
         self._img_scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -241,6 +243,28 @@ class GalleryViewer(QDialog):
         self._img_lbl = ZoomableImageLabel()
         self._img_scroll.setWidget(self._img_lbl)
         self._img_scroll.setWidgetResizable(False)
+
+        self._loading_state = QWidget(self)
+        self._loading_state.setStyleSheet(f"background-color: {p.bg};")
+        load_lay = QVBoxLayout(self._loading_state)
+        load_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        load_lay.setSpacing(10)
+        self._spinner = Spinner(28, parent=self._loading_state)
+        self._loading_lbl = QLabel("Decrypting image…", self._loading_state)
+        self._loading_lbl.setFont(Tokens.type.font(Tokens.type.BODY, Tokens.type.WEIGHT_LABEL))
+        self._loading_lbl.setStyleSheet(f"color: {p.text_secondary}; background: transparent;")
+        load_lay.addWidget(self._spinner, 0, Qt.AlignmentFlag.AlignCenter)
+        load_lay.addWidget(self._loading_lbl, 0, Qt.AlignmentFlag.AlignCenter)
+        self._loading_state.hide()
+
+        self._error_state = ErrorState(
+            "Unable to open image",
+            "Could not decrypt or decode this image file.",
+            retry_text="Retry",
+            parent=self,
+        )
+        self._error_state.retry_clicked.connect(self._show_current)
+        self._error_state.hide()
 
         # ── Bottom navigation ──
         self._bottom_nav = QWidget(self)
@@ -270,6 +294,8 @@ class GalleryViewer(QDialog):
         nav_layout.addWidget(next_btn)
 
         layout.addWidget(self._top_bar)
+        layout.addWidget(self._loading_state, 1)
+        layout.addWidget(self._error_state, 1)
         layout.addWidget(self._img_scroll, 1)
         layout.addWidget(self._bottom_nav)
 
@@ -359,9 +385,10 @@ class GalleryViewer(QDialog):
         if fid not in self._cached:
             self._img_lbl._original_pixmap = None
             self._img_lbl.setPixmap(QPixmap())
-            self._img_lbl.setFixedSize(400, 120)
-            self._img_lbl.setText("Decrypting image…")
-            self._img_lbl.setStyleSheet(f"background: {Colors.BG_DARKEST}; color: {Colors.TEXT_MUTED};")
+            self._img_scroll.hide()
+            self._error_state.hide()
+            self._loading_state.show()
+            self._spinner.start()
             worker = _ImageLoadWorker(self._vault, fid)
             self._load_workers.add(worker)
 
@@ -380,10 +407,11 @@ class GalleryViewer(QDialog):
                 self._load_workers.discard(worker)
                 worker.deleteLater()
                 if not self._cleaned_up and failed_fid == self._current_id:
-                    self._img_lbl.setPixmap(QPixmap())
-                    self._img_lbl.setFixedSize(400, 120)
-                    self._img_lbl.setText("Could not decrypt or load image.")
-                    self._img_lbl.setStyleSheet(f"background: {Colors.BG_DARKEST}; color: {Colors.DANGER};")
+                    self._spinner.stop()
+                    self._loading_state.hide()
+                    self._img_scroll.hide()
+                    self._error_state.set_error("Unable to open image", "Could not decrypt or load image.")
+                    self._error_state.show()
 
             worker.loaded.connect(_on_loaded, Qt.ConnectionType.QueuedConnection)
             worker.failed.connect(_on_failed, Qt.ConnectionType.QueuedConnection)
@@ -396,17 +424,22 @@ class GalleryViewer(QDialog):
     def _render_cached_image(self, fid: str) -> None:
         if fid not in self._cached:
             return
+        if hasattr(self, "_spinner"):
+            self._spinner.stop()
+            self._loading_state.hide()
         data = self._cached[fid]
         px = self._decode_pixmap(data)
 
         if px.isNull():
             self._img_lbl._original_pixmap = None
             self._img_lbl.setPixmap(QPixmap())
-            self._img_lbl.setFixedSize(400, 120)
-            self._img_lbl.setText("Could not display image format.")
-            self._img_lbl.setStyleSheet(f"background: {Colors.BG_DARKEST}; color: {Colors.TEXT_MUTED};")
+            self._img_scroll.hide()
+            self._error_state.set_error("Unsupported image", "Could not display this image format.")
+            self._error_state.show()
             return
 
+        self._error_state.hide()
+        self._img_scroll.show()
         self._img_lbl.setText("")
         self._img_lbl.setStyleSheet(f"background: {Colors.BG_DARKEST};")
         self._img_lbl.set_pixmap(px)
@@ -443,6 +476,8 @@ class GalleryViewer(QDialog):
         if self._cleaned_up:
             return
         self._cleaned_up = True
+        if hasattr(self, "_spinner"):
+            self._spinner.stop()
         if hasattr(self, "_controls_hide_timer") and self._controls_hide_timer.isActive():
             self._controls_hide_timer.stop()
         if self._slideshow_timer and self._slideshow_timer.isActive():
