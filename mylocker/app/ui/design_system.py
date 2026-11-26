@@ -311,11 +311,27 @@ class DesignTokens:
         resolved = resolve_theme_mode(mode)
         self._mode = resolved
         pal = self.colors
+        try:
+            import shiboken6
+        except Exception:  # pragma: no cover
+            shiboken6 = None  # type: ignore[assignment]
+        stale: list[Callable[[ThemePalette], None]] = []
         for cb in list(self._listeners):
+            owner = getattr(cb, "__self__", None)
+            if shiboken6 is not None and owner is not None:
+                try:
+                    if not shiboken6.isValid(owner):
+                        stale.append(cb)
+                        continue
+                except Exception:
+                    pass
             try:
                 cb(pal)
             except Exception as exc:
                 logger.debug("Theme change listener error: %s", type(exc).__name__)
+        for cb in stale:
+            if cb in self._listeners:
+                self._listeners.remove(cb)
         return pal
 
     def subscribe(self, cb: Callable[[ThemePalette], None]) -> None:

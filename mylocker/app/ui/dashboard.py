@@ -564,8 +564,23 @@ class Dashboard(QMainWindow):
             self._notif_btn.setToolTip(f"Security Alert: {msg}")
             self._notif_btn.set_unread(True)
 
+    def _pause_idle_animations(self) -> None:
+        """Stop active animations and transient UI timers when hidden, minimized, or locked."""
+        stop_all_animations(self)
+        if hasattr(self, "_loading_spinner") and self._loading_spinner is not None:
+            self._loading_spinner.stop()
+        if hasattr(self, "_speed_banner") and hasattr(self._speed_banner, "pause_countdown"):
+            self._speed_banner.pause_countdown(True)
+        if hasattr(self, "_hotkey_banner") and hasattr(self._hotkey_banner, "pause_countdown"):
+            self._hotkey_banner.pause_countdown(True)
+        if hasattr(self, "_grid_render_timer") and self._grid_render_timer.isActive():
+            self._grid_render_timer.stop()
+        if hasattr(self, "_resize_timer") and self._resize_timer.isActive():
+            self._resize_timer.stop()
+
     def _on_pre_lock(self) -> None:
         """Invoked before session.lock() zeroes master key: cancel all running tasks."""
+        self._pause_idle_animations()
         if self._vault_service is not None:
             try:
                 self._vault_service.cancel_current()
@@ -2470,6 +2485,15 @@ class Dashboard(QMainWindow):
             get_lock_controller().unregister_window(reg_win)
         except Exception:
             pass
+
+    def hideEvent(self, event) -> None:
+        self._pause_idle_animations()
+        super().hideEvent(event)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+            self._pause_idle_animations()
 
     def closeEvent(self, event) -> None:
         self.cleanup()

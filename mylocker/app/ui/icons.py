@@ -10,7 +10,8 @@ One cohesive SVG stroke set:
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from collections import OrderedDict
+from typing import Optional
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
@@ -19,7 +20,7 @@ from PySide6.QtSvg import QSvgRenderer
 from .design_system import Tokens
 
 # ── SVG Vector Definitions (24x24 viewBox, stroke-width=1.5, round caps/joins) ─
-_SVG_PATHS: Dict[str, str] = {
+_SVG_PATHS: dict[str, str] = {
     "shield": """
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
     """,
@@ -379,7 +380,8 @@ def _build_svg_xml(path_content: str, color: str, size: int, stroke_width: float
     )
 
 
-_PIXMAP_CACHE: Dict[tuple, QPixmap] = {}
+_PIXMAP_CACHE: OrderedDict[tuple, QPixmap] = OrderedDict()
+MAX_ICON_CACHE = 512
 
 
 def clear_icon_cache(*_args) -> None:
@@ -410,6 +412,7 @@ def get_pixmap(
 
     cache_key = (id(app), name, color, size, dpr_key) if app is not None else None
     if cache_key is not None and cache_key in _PIXMAP_CACHE:
+        _PIXMAP_CACHE.move_to_end(cache_key)
         return _PIXMAP_CACHE[cache_key]
 
     raw_path = _SVG_PATHS.get(name) or _SVG_PATHS["file"]
@@ -428,9 +431,10 @@ def get_pixmap(
     pixmap.setDevicePixelRatio(dpr_key)
 
     if cache_key is not None:
-        if len(_PIXMAP_CACHE) > 512:
-            _PIXMAP_CACHE.clear()
         _PIXMAP_CACHE[cache_key] = pixmap
+        _PIXMAP_CACHE.move_to_end(cache_key)
+        while len(_PIXMAP_CACHE) > MAX_ICON_CACHE:
+            _PIXMAP_CACHE.popitem(last=False)
 
     return pixmap
 

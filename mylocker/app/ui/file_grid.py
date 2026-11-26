@@ -374,6 +374,8 @@ class FileCard(AnimatedCard):
             )
             cached = self._thumb_cache.get(cache_key) if self._thumb_cache is not None else None
             if cached is not None and not cached.isNull():
+                if isinstance(self._thumb_cache, OrderedDict):
+                    self._thumb_cache.move_to_end(cache_key)
                 self._thumb.setPixmap(cached)
                 loaded_pixmap = True
             else:
@@ -572,6 +574,8 @@ class FileListDelegate(QStyledItemDelegate):
         key = ("row", entry.file_id, entry.modified_time, Tokens.colors.name)
         cached = self._thumb_cache.get(key)
         if cached is not None and not cached.isNull():
+            if isinstance(self._thumb_cache, OrderedDict):
+                self._thumb_cache.move_to_end(key)
             return cached
         if entry.thumbnail_b64:
             try:
@@ -585,7 +589,11 @@ class FileListDelegate(QStyledItemDelegate):
                     if isinstance(self._thumb_cache, OrderedDict):
                         self._thumb_cache[key] = out
                         self._thumb_cache.move_to_end(key)
+                        while len(self._thumb_cache) > 512:
+                            self._thumb_cache.popitem(last=False)
                     else:
+                        if len(self._thumb_cache) > 512:
+                            self._thumb_cache.clear()
                         self._thumb_cache[key] = out
                     return out
             except Exception:

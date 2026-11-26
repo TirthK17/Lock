@@ -20,6 +20,7 @@ import time
 from typing import Optional
 
 from PySide6.QtCore import (
+    QEvent,
     QObject,
     QSize,
     Qt,
@@ -968,6 +969,15 @@ class LoginScreen(QWidget):
     def hideEvent(self, event) -> None:
         self._stop_animations_and_timers()
         super().hideEvent(event)
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.isMinimized():
+                self._stop_animations_and_timers()
+            elif self.isVisible() and not self._is_reduced_motion():
+                self._backdrop.start_ambient()
+                self._status_badge.set_reduced_motion(False)
 
     def closeEvent(self, event) -> None:
         self.cleanup()

@@ -3114,6 +3114,13 @@ class VideoPlayer(QDialog):
 
         get_lock_controller().unregister_viewer(self)
 
+    def hideEvent(self, event) -> None:
+        if hasattr(self, "_hide_timer") and self._hide_timer.isActive():
+            self._hide_timer.stop()
+        if hasattr(self, "_loading_overlay"):
+            self._loading_overlay.stop()
+        super().hideEvent(event)
+
     def closeEvent(self, event) -> None:
         """Stop player, zero all chunk buffers & preview thumbnails, unregister viewer."""
         self._cleanup()
